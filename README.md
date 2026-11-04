@@ -1,92 +1,66 @@
-# TotK Recomp
+# Cadence of Hyrule Recomp
 
-**TotK Recomp** is a static recompilation of *The Legend of Zelda: Tears of the Kingdom* (Nintendo Switch, 2023) into a native x86-64 application for Windows and Linux ([docs/architecture.md](docs/architecture.md)).
+Uma recompilação estática de *Cadence of Hyrule – Crypt of the NecroDancer Featuring The Legend of Zelda* (Nintendo Switch) para um executável nativo x86-64 do Windows.
+
+> [!WARNING]
+> **Este projeto foi feito por IA.** Praticamente todo o código, a adaptação e esta documentação foram escritos por um agente de IA (Claude Code, da Anthropic) a pedido do dono do repositório, que testou os builds no próprio PC.
+>
+> **Ele é baseado no [totk-pc-recomp](https://github.com/valentderah/totk-pc-recomp)** de Valiantsin Dzerakh (o recomp de *Tears of the Kingdom*). O lifter, o runtime, o instalador e quase tudo o mais vêm de lá; aqui só foi adaptado para outro jogo. Os créditos e licenças originais continuam valendo (veja [Créditos](#créditos)).
+>
+> **Está longe de estar 100%.** O jogo abre, roda os vídeos e chega no gameplay, mas foi pouco testado: espere bugs visuais, travamentos, partes que não funcionam e opções do menu que não fazem nada. Não há garantia de que dá para terminar o jogo.
 
 > [!IMPORTANT]
-> **No game files are included.** You need your own legally obtained copy of *Tears of the Kingdom*, dumped from your own console: the base game and the 1.1.0, 1.2.1 or 1.4.3 update. Instructions for obtaining those files will not be provided.
+> **Nenhum arquivo do jogo está incluído.** Você precisa da sua própria cópia do jogo, extraída do seu próprio console. Não serão dadas instruções de como obter esses arquivos.
 >
-> The game is built from your files on your machine, so the result contains the game. It is for your own use. Do not share it.
+> O jogo é montado a partir dos seus arquivos, na sua máquina, então o resultado contém o jogo. É para uso próprio. Não compartilhe a pasta instalada.
 
-## Status
+## O que funciona (até agora)
 
-Early development. The game is playable on Windows and Linux; visual bugs and crashes are still expected.
+- Abre, mostra os vídeos de abertura e entra no gameplay a 60 fps
+- Sombras e imagem na orientação certa
+- Teclado, mouse e controle (herdado do TotK Recomp)
+- Menu de configurações no jogo (F1) e overlay de desempenho (F10); opções que só faziam sentido no TotK foram escondidas
 
-Report problems as issues, following [CONTRIBUTING.md](CONTRIBUTING.md).
+## O que não funciona ou não foi testado
 
-## Features
+- Só a versão **1.5.0** (jogo base 1.0.0 + atualização 1.5.0). DLCs não são suportadas.
+- Só **Windows** foi testado.
+- Mods, cheats, DLSS e a preparação de shaders do TotK não se aplicam a este jogo.
+- Pode haver engasgos (stutter) na primeira vez que cada efeito aparece, porque os shaders são traduzidos durante o jogo.
+- Save, progresso longo, multiplayer local e muitas áreas do jogo não foram verificados.
 
-- Native code, not emulation
-- Game updates 1.1.0, 1.2.1 and 1.4.3; 1.2.1 and 1.4.3 saves carry over between them
-- Takes NSP and XCI game files, and compressed NSZ and XCZ as they are: the setup unpacks them itself
-- 60 fps by default; up to 144 fps or the monitor's refresh rate (experimental)
-- Custom resolutions (1080p, 2k...), supersampling and AMD FSR 1 upscaling
-- NVIDIA DLSS / DLAA on RTX GPUs: the setup downloads `nvngx_dlss.dll` from NVIDIA's DLSS SDK repository
-  (github.com/NVIDIA/DLSS, NVIDIA RTX SDK license) when it finds an RTX GPU; untick it in the setup to skip it
-- HDR10 output with peak, game and HUD brightness settings
-- 16:10 (Steam Deck, handhelds), 3:2 (Surface, Framework), 21:9 and 32:9 (ultrawide) game resolutions, with the camera and the interface in that shape
-- Anisotropic texture filtering up to 16x, for sharp ground into the distance
-- In-game settings menu (F1) and performance overlay (F10)
-- Discord Rich Presence ("Playing TotK Recomp" with the play time), off by default, own application id supported
-- Setup and in-game menu in English, Russian, Brazilian Portuguese and Simplified Chinese
-- Keyboard, mouse and gamepad with remapping, rumble and gyro
-- Stereo or 5.1 surround sound output
-- Xbox button prompts: LB, RB, LT, RT, Menu and View, and A, B, X and Y as labelled on the button to press, with either button layout
-- Shaders prepared at install instead of during play
-- Mods made for emulators: unpack a mod into the `mods` folder next to `totk.exe`; switch and order them in the menu. RomFS
-  mods, TKMM's merged output and ExeFS code patches (`.ips`, `.pchtxt`) work; the game rebuilds itself for code patches
-  ([docs/mods.md](docs/mods.md))
-- Atmosphère cheats: put a cheat file into a mod and switch its cheats in the menu ([docs/cheats.md](docs/cheats.md))
+## Instalação (Windows)
 
-## Planned
+Requisitos: Windows 10 ou mais novo, CPU x86-64 com SSE4.2, GPU com Vulkan 1.3, e cerca de 12 GB livres durante a instalação.
 
-- VRR
+Você precisa de:
 
-## Installing
+- o jogo base (versão 1.0.0) em NSP, XCI, NSZ ou XCZ
+- a atualização 1.5.0 em NSP ou NSZ
+- o `prod.keys` do seu console
 
-### Windows
+Passos:
 
-Requirements: Windows 10 or later, an x86-64 CPU with SSE4.2 (AVX2/FMA machines get a faster build), a GPU with Vulkan 1.3 and `VK_EXT_external_memory_host`, about 36 GiB free during setup (20 GiB after).
+1. Baixe o `.zip` em [Releases](../../releases/latest) e extraia.
+2. Abra o `Cadence-Setup.exe`. Se o SmartScreen avisar sobre app sem assinatura, clique em *Mais informações* e depois em *Executar assim mesmo*.
+3. Escolha os arquivos do jogo, o `prod.keys`, o idioma e uma pasta de instalação e clique em *Iniciar*. O instalador confere os arquivos pelo hash, extrai, converte o código do jogo em C e compila tudo com o compilador que já vem no pacote. Isso leva um tempo e só precisa ser feito uma vez.
+4. Jogue pelo `cadence.exe` na pasta de instalação.
 
-1. Download `TotK-Setup-<version>-windows.zip` from [Releases](../../releases/latest) and unpack it.
-2. Start `TotK-Setup.exe`. If SmartScreen warns about an unsigned app, choose *More info*, then *Run anyway*.
-3. Pick your game files, the language and an install folder, and press *Start*. The setup builds the game once. With
-   an NVIDIA RTX GPU it also downloads NVIDIA DLSS, unless you untick *Download NVIDIA DLSS*; turn DLSS on in the
-   menu (F1).
-4. Play `totk.exe` from the install folder.
+As configurações ficam no menu do jogo (F1) e no `cadence.ini`.
 
-### Linux
+## Compilando a partir do código
 
-Requirements: as on Windows, plus Linux 6.7 or later and glibc 2.34 or later (Ubuntu 22.04, Debian 12, Fedora 35, SteamOS 3).
+O processo é o mesmo do projeto original ([docs/building.md](docs/building.md)), com `--game cadence` no `tools/build_game.py` e `--modules main,subsdk0,subsdk1,sdk` no `recomp/gen.py`. O perfil do jogo (ids de título, versões, hashes esperados) fica em [tools/game_profile.py](tools/game_profile.py) e [tools/data/cadence](tools/data/cadence). O pacote de release é montado por `tools/make_release.py`.
 
-1. Download `TotK-Setup-x86_64.AppImage` from [Releases](../../releases/latest), or build it ([docs/installer.md](docs/installer.md), "Linux release").
-2. Make it executable (`chmod +x TotK-Setup-x86_64.AppImage`) and start it. On a Steam Deck, do this in Desktop Mode.
-3. Pick your game files, the language and an install folder, and press *Start*.
-4. Play `totk` from the install folder.
+Tudo que o build gera fica em `build\` e `generated\`, que o git ignora. Rode `tools/check_content.py` antes de cada commit para garantir que nenhum conteúdo do jogo entre no repositório.
 
-To update, run a newer setup on the same folder; saves and settings are kept. Settings are in the in-game menu and in `totk.ini` ([totk.ini.example](totk.ini.example) lists every key). Controls: [docs/controls.md](docs/controls.md).
+## Créditos
 
-## Credits
+- [totk-pc-recomp](https://github.com/valentderah/totk-pc-recomp), de Valiantsin Dzerakh: a base de todo este projeto
+- Os projetos que o totk-pc-recomp usa, listados com suas licenças em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): LAS Recomp, MacNativeGames, Ryujinx, deko3d, hactool, SDL 3, Dear ImGui, AMD FSR 1, Vulkan Memory Allocator, libopus, libvpx, Zstandard, Switchbrew e a comunidade homebrew do Switch
 
-TotK Recomp builds on the projects below. What was taken from each, with its license, is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## Licença
 
-- [LAS Recomp](https://github.com/peiikai/LASRecomp)
-- [MacNativeGames](https://github.com/ly05010419/MacNativeGames)
-- [d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile) and [nxnative](https://github.com/seedds/nxnative)
-- [SavageWindRecomp](https://github.com/Revivedx/SavageWindRecomp)
-- [Ryujinx](https://github.com/Ryujinx/Ryujinx)
-- [deko3d](https://github.com/devkitPro/deko3d)
-- [hactool](https://github.com/SciresM/hactool)
-- [SDL 3](https://libsdl.org), [Dear ImGui](https://github.com/ocornut/imgui), [AMD FSR 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR), [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator), [libopus](https://opus-codec.org), [libvpx](https://chromium.googlesource.com/webm/libvpx), [Zstandard](https://github.com/facebook/zstd)
-- [Switchbrew](https://switchbrew.org) and the Switch homebrew community
+O código do projeto está sob a [Licença MIT](LICENSE) do projeto original; código de terceiros mantém a própria licença ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). A licença não concede nenhum direito sobre o jogo.
 
-## License
-
-The project's own code is under the [MIT License](LICENSE); third-party code keeps its own license ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). The license grants nothing for Nintendo's game.
-
-TotK Recomp is an independent, non-commercial fan project, not affiliated with or endorsed by Nintendo. *The Legend of Zelda*, *Tears of the Kingdom* and *Nintendo Switch* are trademarks of Nintendo.
-
-## Building from source
-
-[docs/building.md](docs/building.md) lists the toolchain and the steps. Everything the build writes stays under `build\` and `generated\`, which git ignores; run `tools/check_content.py` before a commit. Testers: [docs/tester-guide.md](docs/tester-guide.md).
-
-Most of the code and documentation is written by AI coding agents (Claude Code) under the maintainer's direction; the maintainer plays every build and decides what is merged. [AGENTS.md](AGENTS.md) holds the rules they work under.
+Projeto de fã, independente e sem fins comerciais, sem ligação com a Nintendo, a Brace Yourself Games ou a Spike Chunsoft, nem endossado por elas. *The Legend of Zelda*, *Cadence of Hyrule* e *Nintendo Switch* são marcas da Nintendo; *Crypt of the NecroDancer* é marca da Brace Yourself Games.
