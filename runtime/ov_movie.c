@@ -606,7 +606,9 @@ static void ov_ctor(Cpu *c) {
     m->format = format;
     // DecoderType: 1 H.264 (MUA3's video), 3 VP9 (TotK), 4 the movie's audio (AAC in MUA3)
     m->kind = type == MOVIE_TYPE_VP9 ? KIND_VP9 : type == 4 ? KIND_AAC : KIND_H264;
-    m->paced = m->kind != KIND_AAC;
+    // TotK's player shows one frame per game frame, so its video is paced here; other games' players keep their own
+    // clock (Cadence of Hyrule) and take frames as decoded, as they take the sound.
+    m->paced = m->kind != KIND_AAC && RT_TOTK;
     plat_mutex_init(&m->mu);
     plat_cond_init(&m->work);
     plat_cond_init(&m->idle);
@@ -977,6 +979,25 @@ static void ov_send_input(Cpu *c) {
     } else {
         m->pending[m->npending++] = (Pending){index, offset, size, time, flags};
         plat_cond_signal(&m->work);
+        // Other games than TotK (Cadence of Hyrule): the player waits on the decoder's events, which only a guest thread
+        // can signal, and may present nothing until a frame comes. So the call waits for the worker (decoding takes a
+        // few ms, at most 30 here) and hands over and signals what it produced on this thread.
+        if (RT_OTHER_GAME) {
+            int away = 0;
+            for (int tries = 0; (m->npending || m->busy) && tries < 30; tries++) {
+                if (!away) away = kern_core_away();
+                plat_cond_wait_ms(&m->idle, &m->mu, 1);
+            }
+            release_due(m, g_clock());
+            if (away) {
+                collect(m, &s);
+                plat_mutex_unlock(&m->mu);
+                kern_core_back(&away);
+                fire(c, &s);
+                ret_x(c, (uint32_t)st);
+                return;
+            }
+        }
     }
     collect(m, &s);
     plat_mutex_unlock(&m->mu);
@@ -993,7 +1014,10 @@ static void ov_acquire_output(Cpu *c) {
     if (!m) { pass(c, MOVIE_ACQUIRE_OUTPUT); return; }
     if (!index || !time || !flags || !remaining) { ret_x(c, ST_NULL); return; }
     Signals s = {0};
-    plat_mutex_lock(&m->mu);   // paced frames become ready only at presents (movie_tick)
+    plat_mutex_lock(&m->mu);
+    // A due frame becomes ready at a present (movie_tick) or here: Cadence of Hyrule's player waits for a movie's first
+    // frame before it presents anything, so a frame handed over only at presents never came.
+    if (m->started) release_due(m, g_clock());
     *index = -1;
     *time = 0;
     *flags = 0;

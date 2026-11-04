@@ -193,6 +193,10 @@ NVN_API(nvnDeviceInitialize) {
     memset(o, 0, sizeof *o);
     o->magic = DEV_MAGIC;
     o->flags = b->flags;
+    // NVN's default depth mode is NEAR_IS_MINUS_W (as GL), which a game that never calls SetDepthMode keeps (Cadence of
+    // Hyrule: its shadow maps hold (z+w)/2 and its shaders compare against that). TotK's tables were made with the
+    // 0..w default this port had, so TotK keeps it.
+    if (RT_OTHER_GAME) __atomic_store_n(&depth_minus_w, 1, __ATOMIC_RELAXED);
     NVN_LOG("DeviceInitialize %p flags %#x, back end %s", (void *)o, o->flags, gfx_backend()->name);
     ret_x(c, 1);
 }

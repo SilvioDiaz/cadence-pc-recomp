@@ -1946,7 +1946,11 @@ static VkViewport draw_viewport(VkExec *ex) {
     }
     if (w < 1) w = 1;
     if (h < 1) h = 1;
-    VkViewport v = {x, y + h, w, -h, ex->depth_range[0], ex->depth_range[1]};   // the y flip: negative height
+    // Upper-left window origin (TotK, MUA3): NDC +y at row 0 as NVN puts it, by a negative height. Lower-left origin
+    // (NVN's default, as GL; Cadence of Hyrule): NDC -y at row 0, Vulkan's own mapping, so every target holds rows
+    // as the Switch does and a shader that samples one with GL texture coordinates (shadow maps) reads the right row.
+    VkViewport v = nvn_origin_lower_left() ? (VkViewport){x, y, w, h, ex->depth_range[0], ex->depth_range[1]}
+                                           : (VkViewport){x, y + h, w, -h, ex->depth_range[0], ex->depth_range[1]};
     vk_dlaa_viewport(ex, &v);   // the scene's draws move by the DLAA jitter
     return v;
 }
@@ -2160,7 +2164,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     s.feedback = (uint8_t)((fbl & 0xff ? 1 : 0) | (fbl & 0x100 ? 2 : 0));
     s.prim = (uint8_t)prim;
     s.depth_minus_w = (uint8_t)(nvn_depth_minus_w() != 0);
-    s.y_flip = 1;
+    s.y_flip = (uint8_t)!nvn_origin_lower_left();   // draw_viewport's negative height
     s.prim_restart = (uint8_t)(restart != 0);
     const VkPipeInfo *info = NULL;
     int pending;
