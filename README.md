@@ -1,66 +1,66 @@
 # Cadence of Hyrule Recomp
 
-Uma recompilação estática de *Cadence of Hyrule – Crypt of the NecroDancer Featuring The Legend of Zelda* (Nintendo Switch) para um executável nativo x86-64 do Windows.
+A static recompilation of *Cadence of Hyrule – Crypt of the NecroDancer Featuring The Legend of Zelda* (Nintendo Switch) into a native x86-64 Windows executable.
 
 > [!WARNING]
-> **Este projeto foi feito por IA.** Praticamente todo o código, a adaptação e esta documentação foram escritos por um agente de IA (Claude Code, da Anthropic) a pedido do dono do repositório, que testou os builds no próprio PC.
+> **This project was made by AI.** Nearly all of the code, the porting work and this documentation were written by an AI coding agent (Claude Code, by Anthropic) at the repository owner's request; the owner tested the builds on their own PC.
 >
-> **Ele é baseado no [totk-pc-recomp](https://github.com/valentderah/totk-pc-recomp)** de Valiantsin Dzerakh (o recomp de *Tears of the Kingdom*). O lifter, o runtime, o instalador e quase tudo o mais vêm de lá; aqui só foi adaptado para outro jogo. Os créditos e licenças originais continuam valendo (veja [Créditos](#créditos)).
+> **It is based on [totk-pc-recomp](https://github.com/valentderah/totk-pc-recomp)** by Valiantsin Dzerakh (the *Tears of the Kingdom* recomp). The lifter, the runtime, the installer and almost everything else come from there; this repository only adapts it to another game. The original credits and licenses still apply (see [Credits](#credits)).
 >
-> **Está longe de estar 100%.** O jogo abre, roda os vídeos e chega no gameplay, mas foi pouco testado: espere bugs visuais, travamentos, partes que não funcionam e opções do menu que não fazem nada. Não há garantia de que dá para terminar o jogo.
+> **It is far from 100%.** The game starts, plays its movies and reaches gameplay, but it has had little testing: expect visual bugs, crashes, things that do not work and menu options that do nothing. There is no guarantee the game can be finished.
 
 > [!IMPORTANT]
-> **Nenhum arquivo do jogo está incluído.** Você precisa da sua própria cópia do jogo, extraída do seu próprio console. Não serão dadas instruções de como obter esses arquivos.
+> **No game files are included.** You need your own copy of the game, dumped from your own console. Instructions for obtaining those files will not be provided.
 >
-> O jogo é montado a partir dos seus arquivos, na sua máquina, então o resultado contém o jogo. É para uso próprio. Não compartilhe a pasta instalada.
+> The game is built from your files on your machine, so the result contains the game. It is for your own use. Do not share the installed folder.
 
-## O que funciona (até agora)
+## What works (so far)
 
-- Abre, mostra os vídeos de abertura e entra no gameplay a 60 fps
-- Sombras e imagem na orientação certa
-- Teclado, mouse e controle (herdado do TotK Recomp)
-- Menu de configurações no jogo (F1) e overlay de desempenho (F10); opções que só faziam sentido no TotK foram escondidas
+- Starts, shows the opening movies and reaches gameplay at 60 fps
+- Shadows and the picture are the right way up
+- Keyboard, mouse and gamepad (inherited from TotK Recomp)
+- In-game settings menu (F1) and performance overlay (F10); options that only made sense for TotK are hidden
 
-## O que não funciona ou não foi testado
+## What does not work or is untested
 
-- Só a versão **1.5.0** (jogo base 1.0.0 + atualização 1.5.0). DLCs não são suportadas.
-- Só **Windows** foi testado.
-- Mods, cheats, DLSS e a preparação de shaders do TotK não se aplicam a este jogo.
-- Pode haver engasgos (stutter) na primeira vez que cada efeito aparece, porque os shaders são traduzidos durante o jogo.
-- Save, progresso longo, multiplayer local e muitas áreas do jogo não foram verificados.
+- Only version **1.5.0** (base game 1.0.0 + the 1.5.0 update). DLC is not supported.
+- Only **Windows** has been tested.
+- TotK's mods, cheats, DLSS and shader preparation do not apply to this game.
+- There may be stutter the first time each effect appears, because shaders are translated during play.
+- Saves, long play sessions, local multiplayer and most of the game's areas have not been checked.
 
-## Instalação (Windows)
+## Installing (Windows)
 
-Requisitos: Windows 10 ou mais novo, CPU x86-64 com SSE4.2, GPU com Vulkan 1.3, e cerca de 12 GB livres durante a instalação.
+Requirements: Windows 10 or later, an x86-64 CPU with SSE4.2, a GPU with Vulkan 1.3, and about 12 GB free during setup.
 
-Você precisa de:
+You need:
 
-- o jogo base (versão 1.0.0) em NSP, XCI, NSZ ou XCZ
-- a atualização 1.5.0 em NSP ou NSZ
-- o `prod.keys` do seu console
+- the base game (version 1.0.0) as NSP, XCI, NSZ or XCZ
+- the 1.5.0 update as NSP or NSZ
+- your console's `prod.keys`
 
-Passos:
+Steps:
 
-1. Baixe o `.zip` em [Releases](../../releases/latest) e extraia.
-2. Abra o `Cadence-Setup.exe`. Se o SmartScreen avisar sobre app sem assinatura, clique em *Mais informações* e depois em *Executar assim mesmo*.
-3. Escolha os arquivos do jogo, o `prod.keys`, o idioma e uma pasta de instalação e clique em *Iniciar*. O instalador confere os arquivos pelo hash, extrai, converte o código do jogo em C e compila tudo com o compilador que já vem no pacote. Isso leva um tempo e só precisa ser feito uma vez.
-4. Jogue pelo `cadence.exe` na pasta de instalação.
+1. Download the `.zip` from [Releases](../../releases/latest) and unpack it.
+2. Start `Cadence-Setup.exe`. If SmartScreen warns about an unsigned app, choose *More info*, then *Run anyway*.
+3. Pick the game files, `prod.keys`, the language and an install folder, and press *Start*. The setup checks the files by hash, extracts them, turns the game's code into C and compiles everything with the compiler bundled in the package. This takes a few minutes and only needs to be done once.
+4. Play `cadence.exe` from the install folder.
 
-As configurações ficam no menu do jogo (F1) e no `cadence.ini`.
+Settings are in the in-game menu (F1) and in `cadence.ini`.
 
-## Compilando a partir do código
+## Building from source
 
-O processo é o mesmo do projeto original ([docs/building.md](docs/building.md)), com `--game cadence` no `tools/build_game.py` e `--modules main,subsdk0,subsdk1,sdk` no `recomp/gen.py`. O perfil do jogo (ids de título, versões, hashes esperados) fica em [tools/game_profile.py](tools/game_profile.py) e [tools/data/cadence](tools/data/cadence). O pacote de release é montado por `tools/make_release.py`.
+The process is the same as in the original project ([docs/building.md](docs/building.md)), with `--game cadence` for `tools/build_game.py` and `--modules main,subsdk0,subsdk1,sdk` for `recomp/gen.py`. The game profile (title ids, versions, expected hashes) is in [tools/game_profile.py](tools/game_profile.py) and [tools/data/cadence](tools/data/cadence). The release package is built by `tools/make_release.py`.
 
-Tudo que o build gera fica em `build\` e `generated\`, que o git ignora. Rode `tools/check_content.py` antes de cada commit para garantir que nenhum conteúdo do jogo entre no repositório.
+Everything the build writes stays under `build\` and `generated\`, which git ignores. Run `tools/check_content.py` before every commit so that no game content enters the repository.
 
-## Créditos
+## Credits
 
-- [totk-pc-recomp](https://github.com/valentderah/totk-pc-recomp), de Valiantsin Dzerakh: a base de todo este projeto
-- Os projetos que o totk-pc-recomp usa, listados com suas licenças em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): LAS Recomp, MacNativeGames, Ryujinx, deko3d, hactool, SDL 3, Dear ImGui, AMD FSR 1, Vulkan Memory Allocator, libopus, libvpx, Zstandard, Switchbrew e a comunidade homebrew do Switch
+- [totk-pc-recomp](https://github.com/valentderah/totk-pc-recomp) by Valiantsin Dzerakh: the base of this whole project
+- The projects totk-pc-recomp builds on, listed with their licenses in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): LAS Recomp, MacNativeGames, Ryujinx, deko3d, hactool, SDL 3, Dear ImGui, AMD FSR 1, Vulkan Memory Allocator, libopus, libvpx, Zstandard, Switchbrew and the Switch homebrew community
 
-## Licença
+## License
 
-O código do projeto está sob a [Licença MIT](LICENSE) do projeto original; código de terceiros mantém a própria licença ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). A licença não concede nenhum direito sobre o jogo.
+The project's code is under the original project's [MIT License](LICENSE); third-party code keeps its own license ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). The license grants nothing for the game.
 
-Projeto de fã, independente e sem fins comerciais, sem ligação com a Nintendo, a Brace Yourself Games ou a Spike Chunsoft, nem endossado por elas. *The Legend of Zelda*, *Cadence of Hyrule* e *Nintendo Switch* são marcas da Nintendo; *Crypt of the NecroDancer* é marca da Brace Yourself Games.
+An independent, non-commercial fan project, not affiliated with or endorsed by Nintendo, Brace Yourself Games or Spike Chunsoft. *The Legend of Zelda*, *Cadence of Hyrule* and *Nintendo Switch* are trademarks of Nintendo; *Crypt of the NecroDancer* is a trademark of Brace Yourself Games.
