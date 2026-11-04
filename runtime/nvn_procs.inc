@@ -536,3 +536,7 @@ NVN_PROC(nvnWindowSetPresentInterval)
 NVN_PROC(nvnSyncGetNvRmSyncNVX)
 NVN_PROC(nvnSyncInitializeFromNvRmSyncNVX)
 NVN_PROC(nvnTextureGetNvRmSurfaceNVX)
+// MUA3 loads two names TotK 1.2.1 does not (tools/gen_nvn_procs.py NOT_LOADED drops them; keep these rows when
+// regenerating).
+NVN_PROC(nvnDeviceApplyDeferredFinalizes)
+NVN_PROC(nvnQueueAcquireTexture)

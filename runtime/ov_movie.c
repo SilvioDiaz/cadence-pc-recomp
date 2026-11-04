@@ -34,9 +34,14 @@
 #include "cfg.h"
 #include "host.h"
 #include "movie.h"
+#include "movie_codec.h"
 #include "platform/platform.h"
 
 enum { IN_BUFS = 4, IN_CAP = 2 << 20, OUT_BUFS = 8, MAX_MOVIES = 16, VPX_THREADS = 4 };
+// Host codecs (movie_codec.h, MUA3): their own worker, frames out of order with the decoder's times, and a spill queue
+// for frames the decoder gives while every output slot is held.
+enum { KIND_VP9 = 0, KIND_H264 = 1, KIND_AAC = 2, AUDIO_CAP = 32768, SPILL_MAX = 32 };
+typedef struct { uint8_t *data; int bytes; int64_t time; unsigned flags; } Spill;
 enum { ST_OK = 0, ST_ERROR = 0x1000, ST_NULL = 0x100b, ST_NO_OUTPUT = 0x100e, ST_NO_INPUT = 0x1011,
        ST_UNSUPPORTED = 0x2001, ST_NOT_CONFIGURED = 0x2002 };
 
@@ -79,6 +84,12 @@ typedef struct {
     PlatThread *thread;
     int busy, quit;
     uint64_t gen;                            // bumped by Flush, Stop, Reset, destruction: a decode in flight is dropped
+    int kind;                                // KIND_*: chosen by the constructor's decoder type
+    MovieCodec *mc;                          // H.264 / AAC (movie_codec.h)
+    int paced;                               // video: frames handed over by presentation time; audio: as decoded
+    int rate, channels, out_cap;             // AAC; out_cap: bytes of one output slot
+    Spill spill[SPILL_MAX];
+    int nspill;
 } Movie;
 
 static MovieGuest G;
@@ -318,6 +329,143 @@ static void worker(void *arg) {
     return;
 }
 
+// ---- host codecs (H.264, AAC): movie_codec.h
+static int slot_bytes(const Movie *m) { return m->kind == KIND_AAC ? AUDIO_CAP : frame_bytes(m); }
+
+// m->mu held: frames waiting in the spill queue go into free output slots, in order.
+static void unspill(Movie *m) {
+    while (m->nspill) {
+        int slot = free_out(m);
+        if (slot < 0) return;
+        Spill s = m->spill[0];
+        memmove(m->spill, m->spill + 1, (size_t)--m->nspill * sizeof *m->spill);
+        if (s.bytes) memcpy(m->out[slot], s.data, (size_t)s.bytes);
+        free(s.data);
+        push_decoded(m, slot, s.flags, s.time, s.bytes);
+        if (!s.bytes) continue;
+        if (!m->format_sent) {
+            m->format_sent = 1;
+            m->owed |= 1u << MOVIE_EV_FORMAT;
+        }
+    }
+}
+static void spill_clear(Movie *m) {
+    for (int i = 0; i < m->nspill; i++) free(m->spill[i].data);
+    m->nspill = 0;
+}
+
+// Outside m->mu: every frame the codec has ready, into out (at most max); returns the count, -1 on an error.
+static int pull_all(Movie *m, Spill *out, int max) {
+    int n = 0;
+    while (n < max) {
+        uint8_t *buf = malloc((size_t)m->out_cap);
+        if (!buf) return -1;
+        int bytes = 0;
+        int64_t us = 0;
+        int r = mc_pull(m->mc, buf, m->out_cap, &bytes, &us);
+        if (r <= 0) {
+            free(buf);
+            return r < 0 ? -1 : n;
+        }
+        out[n++] = (Spill){buf, bytes, us, 0};
+    }
+    return n;
+}
+
+static void worker_mc(void *arg) {
+    Movie *m = arg;
+    plat_mutex_lock(&m->mu);
+    for (;;) {
+        unspill(m);
+        while (!m->quit && !(m->started && m->mc && m->npending && m->nspill < SPILL_MAX / 2)) {
+            plat_cond_wait(&m->work, &m->mu);
+            unspill(m);
+        }
+        if (m->quit) break;
+        Pending p = m->pending[0];
+        memmove(m->pending, m->pending + 1, (size_t)--m->npending * sizeof *m->pending);
+        uint64_t gen = m->gen;
+        MovieCodec *mc = m->mc;
+        m->busy = 1;
+        plat_mutex_unlock(&m->mu);
+        Spill got[SPILL_MAX];
+        int ngot = 0, bad = 0;
+        uint64_t t0 = kern_now_ns();
+        // A codec-config input (MediaCodec BUFFER_FLAG_CODEC_CONFIG, 2): H.264's SPS/PPS go to the decoder like any
+        // NAL units; AAC's AudioSpecificConfig is not an access unit, and the decoder already has it.
+        if (p.size > 0 && (p.flags & 2) && m->kind == KIND_AAC) p.size = 0;
+        if (p.size > 0) {
+            const uint8_t *data = m->in[p.index] + p.offset;
+            if (!m->st.frames && !m->st.errors) {   // the first inputs: the layout the game's extractor hands over
+                static volatile int32_t shown;
+                if (plat_inc32(&shown) <= 4)
+                    rt_log("movie: %s input %d bytes at %lld us flags %#x: %02x %02x %02x %02x %02x %02x",
+                           m->kind == KIND_AAC ? "AAC" : "H.264", p.size, (long long)p.time, p.flags, data[0],
+                           p.size > 1 ? data[1] : 0, p.size > 2 ? data[2] : 0, p.size > 3 ? data[3] : 0,
+                           p.size > 4 ? data[4] : 0, p.size > 5 ? data[5] : 0);
+            }
+            int r = mc_feed(mc, data, p.size, p.time);
+            if (r == 0) {   // the decoder holds output: take it, then the input goes in
+                int k = pull_all(m, got, SPILL_MAX / 2);
+                if (k < 0) bad = 1;
+                else ngot += k, r = mc_feed(mc, data, p.size, p.time);
+                if (r == 0) {   // still refused with nothing to give: the input is lost
+                    static volatile int32_t told;
+                    if (plat_inc32(&told) <= 4)
+                        rt_log("movie: the %s decoder refused a %d-byte input at %lld us with no output to take",
+                               m->kind == KIND_AAC ? "AAC" : "H.264", p.size, (long long)p.time);
+                }
+            }
+            if (r < 0) bad = 1;
+        }
+        if (!bad) {
+            int k = pull_all(m, got + ngot, SPILL_MAX / 2 - ngot);
+            if (k < 0) bad = 1;
+            else ngot += k;
+        }
+        int eos = (p.flags & MOVIE_FLAG_EOS) != 0;
+        if (eos && !bad) {
+            mc_drain(mc);
+            int k = pull_all(m, got + ngot, SPILL_MAX / 2 - ngot);
+            if (k > 0) ngot += k;
+        }
+        uint64_t dt = kern_now_ns() - t0;
+        plat_mutex_lock(&m->mu);
+        m->busy = 0;
+        plat_cond_broadcast(&m->idle);
+        if (m->gen != gen) {   // flushed, stopped or reset meanwhile
+            for (int i = 0; i < ngot; i++) free(got[i].data);
+            continue;
+        }
+        m->in_free[m->nin_free++] = p.index;
+        m->owed |= 1u << MOVIE_EV_INPUT;
+        if (bad) {
+            m->st.errors++;
+            m->last_error = ST_ERROR;
+            m->owed |= 1u << MOVIE_EV_ERROR;
+            if (m->st.errors <= 4)
+                rt_log("movie: %s decode error on a %d-byte input at %lld us: %s", m->kind == KIND_AAC ? "AAC" : "H.264",
+                       p.size, (long long)p.time, mc_error(mc));
+        }
+        for (int i = 0; i < ngot && m->nspill < SPILL_MAX; i++) m->spill[m->nspill++] = got[i];
+        if (ngot) {
+            m->st.decode_ns += dt;
+            if (dt > m->st.max_ns) m->st.max_ns = dt;
+            m->st.frames += (uint64_t)ngot;
+            if (m->kind == KIND_H264 && m->st.frames / 600 != (m->st.frames - (uint64_t)ngot) / 600)
+                rt_log("movie: %llu H.264 frames, decode %.2f ms per input (max %.2f)", (unsigned long long)m->st.frames,
+                       m->st.decode_ns / 1e6 / (double)m->st.frames, m->st.max_ns / 1e6);
+        }
+        if (eos && !m->eos_in && m->nspill < SPILL_MAX) {
+            m->eos_in = 1;
+            m->spill[m->nspill++] = (Spill){NULL, 0, p.time, MOVIE_FLAG_EOS};
+            rt_log("movie: %s end of stream after %llu outputs (%llu errors)", m->kind == KIND_AAC ? "AAC" : "H.264",
+                   (unsigned long long)m->st.frames, (unsigned long long)m->st.errors);
+        }
+    }
+    plat_mutex_unlock(&m->mu);
+}
+
 // With m->mu held: invalidate a decode in flight and wait for the worker to leave it. Returns whether the calling guest
 // thread gave its core up; the caller calls kern_core_back after releasing m->mu.
 static int quiesce(Movie *m) {
@@ -347,6 +495,11 @@ static void release_codec(Movie *m) {   // m->mu held, worker quiesced
         vpx_codec_destroy(&m->vpx);
         m->vpx_live = 0;
     }
+    if (m->mc) {
+        mc_close(m->mc);
+        m->mc = NULL;
+    }
+    spill_clear(m);
     for (int i = 0; i < IN_BUFS; i++) {
         if (m->in[i]) mem_kernel_free(m->in[i], IN_CAP);
         m->in[i] = NULL;
@@ -369,7 +522,7 @@ static uint64_t due_at(const Movie *m, const Ready *d) {
 // due frame (end of stream right after the last frame).
 static void release_due(Movie *m, uint64_t now) {
     if (!m->ndecoded) return;
-    if (!pace_on()) {
+    if (!pace_on() || !m->paced) {   // audio is handed over as decoded: the game's own player keeps time
         for (int i = 0; i < m->ndecoded; i++) m->ready[m->nready++] = m->decoded[i];
         m->st.handed += m->ndecoded;
         m->ndecoded = 0;
@@ -439,7 +592,9 @@ static void ov_ctor(Cpu *c) {
     uint64_t obj = arg_x(c, 0);
     int type = (int)arg_x(c, 1), format = (int)arg_x(c, 2), mode = (int)arg_x(c, 3);
     guest_init();
-    if (type != MOVIE_TYPE_VP9 || mode != MOVIE_MODE_BUFFER || host_off()) {
+    // MUA3 (H.264 video, type 1; its sound, type 4): the library would abort in NvOsDrvOpen, so the decoder stays a
+    // host object whose Configure answers "unsupported" until the host decodes those formats.
+    if ((type != MOVIE_TYPE_VP9 && !RT_MUA3) || mode != MOVIE_MODE_BUFFER || host_off()) {
         rt_log("movie: decoder type %d mode %d format %d left to the library%s", type, mode, format,
                host_off() ? " (TOTK_MOVIE_HOST=0)" : " (only VP9 in buffer mode runs on the host)");
         pass(c, MOVIE_CTOR);
@@ -449,10 +604,13 @@ static void ov_ctor(Cpu *c) {
     if (!m) rt_fatal("movie: decoder allocation");
     m->guest = obj;
     m->format = format;
+    // DecoderType: 1 H.264 (MUA3's video), 3 VP9 (TotK), 4 the movie's audio (AAC in MUA3)
+    m->kind = type == MOVIE_TYPE_VP9 ? KIND_VP9 : type == 4 ? KIND_AAC : KIND_H264;
+    m->paced = m->kind != KIND_AAC;
     plat_mutex_init(&m->mu);
     plat_cond_init(&m->work);
     plat_cond_init(&m->idle);
-    m->thread = plat_thread_new(worker, m, "movie");
+    m->thread = plat_thread_new(m->kind == KIND_VP9 ? worker : worker_mc, m, "movie");
     if (!m->thread) rt_fatal("movie: cannot start the worker thread");
     plat_mutex_lock(&g_lock);
     int i = 0;
@@ -464,7 +622,7 @@ static void ov_ctor(Cpu *c) {
     plat_mutex_unlock(&g_lock);
     ST64(obj, G.vptr);
     ST64(obj + 8, U(m));
-    rt_log("movie: VP9 decoder %#llx on the host (libvpx %s), output format %d", (unsigned long long)obj,
+    rt_log("movie: decoder %#llx (type %d) on the host (libvpx %s), output format %d", (unsigned long long)obj, type,
            vpx_codec_version_str(), format);
 }
 
@@ -508,12 +666,78 @@ static void ov_d0(Cpu *c) {
     pass(c, MOVIE_D0);
 }
 
+// A codec-specific-data buffer of the format (csd-0, csd-1): its bytes, NULL when the format has none.
+static const uint8_t *md_buffer(Cpu *c, uint64_t md, const char *key, int *n) {
+    static uint64_t find_buffer, buf_data, buf_size;
+    if (!find_buffer) {
+        find_buffer = ldr_symbol("_ZNK5movie9MediaData10FindBufferEPKcPPNS_6BufferE");
+        buf_data = ldr_symbol("_ZNK5movie6Buffer4DataEv");
+        buf_size = ldr_symbol("_ZNK5movie6Buffer4SizeEv");
+    }
+    *n = 0;
+    if (!find_buffer || !buf_data || !buf_size) return NULL;
+    uint64_t b = 0;
+    if (!(uint8_t)rt_call(c, find_buffer, 3, md, U(key), U(&b)) || !b) return NULL;
+    uint64_t p = rt_call(c, buf_data, 1, b), size = rt_call(c, buf_size, 1, b);
+    if (!p || !size || size > (1 << 20)) return NULL;
+    *n = (int)size;
+    return (const uint8_t *)(uintptr_t)p;
+}
+
+// Configure for the host codecs: H.264 (video/avc, NV12 out) and AAC (audio/mp4a-latm, 16-bit PCM out).
+static void configure_mc(Cpu *c, Movie *m, uint64_t md) {
+    uint64_t mime_p = 0;
+    int a = 0, b = 0, n0 = 0, n1 = 0;
+    rt_call(c, G.md_find_string, 3, md, U("mime"), U(&mime_p));
+    const char *mime = (const char *)(uintptr_t)mime_p;
+    int video = m->kind == KIND_H264;
+    md_find_int32(c, md, video ? "width" : "sample-rate", &a);
+    md_find_int32(c, md, video ? "height" : "channel-count", &b);
+    const uint8_t *csd0 = md_buffer(c, md, "csd-0", &n0), *csd1 = md_buffer(c, md, "csd-1", &n1);
+    rt_log("movie: configure %s %s %dx%d output format %d, csd-0 %d bytes (%02x %02x %02x %02x %02x), csd-1 %d bytes",
+           video ? "video" : "audio", mime ? mime : "(none)", a, b, m->format, n0, n0 > 0 ? csd0[0] : 0,
+           n0 > 1 ? csd0[1] : 0, n0 > 2 ? csd0[2] : 0, n0 > 3 ? csd0[3] : 0, n0 > 4 ? csd0[4] : 0, n1);
+    int ok = mime && (video ? !strcmp(mime, "video/avc") && m->format == MOVIE_FORMAT_NV12 && a > 0 && b > 0 &&
+                                  a <= 8192 && b <= 8192 && !((a | b) & 1)
+                            : !strcmp(mime, "audio/mp4a-latm") && a > 0 && b > 0 && b <= 8);
+    if (!ok) {
+        rt_log("movie: configure: %s not supported on the host", mime ? mime : "(no mime)");
+        ret_x(c, ST_UNSUPPORTED);
+        return;
+    }
+    char err[160];
+    MovieCodec *mc = mc_open(video ? MC_H264 : MC_AAC, a, b, csd0, n0, csd1, n1, err, sizeof err);
+    if (!mc) {
+        rt_log("movie: %s decoder (%s): %s", video ? "H.264" : "AAC", mc_backend(), err);
+        ret_x(c, ST_UNSUPPORTED);
+        return;
+    }
+    plat_mutex_lock(&m->mu);
+    int away = quiesce(m);
+    release_codec(m);
+    m->mc = mc;
+    if (video) m->w = a, m->h = b;
+    else m->rate = a, m->channels = b;
+    m->out_cap = slot_bytes(m);
+    for (int i = 0; i < IN_BUFS; i++) m->in[i] = mem_kernel_alloc(IN_CAP, 0x1000);
+    for (int i = 0; i < OUT_BUFS; i++)
+        if (!(m->out[i] = malloc((size_t)m->out_cap))) rt_fatal("movie: output buffers");
+    reset_queues(m);
+    m->format_sent = 0;
+    m->configured = 1;
+    m->last_error = 0;
+    unlock_back(m, away);
+    rt_log("movie: configured %s on the host (%s)", video ? "H.264" : "AAC", mc_backend());
+    ret_x(c, ST_OK);
+}
+
 // Status Configure(MediaData *format)
 static void ov_configure(Cpu *c) {
     uint64_t obj = arg_x(c, 0), md = arg_x(c, 1);
     Movie *m = find(obj);
     if (!m) { pass(c, MOVIE_CONFIGURE); return; }
     if (!md) { ret_x(c, ST_NULL); return; }
+    if (m->kind != KIND_VP9) { configure_mc(c, m, md); return; }
     if (m->format != MOVIE_FORMAT_NV12) {
         rt_log("movie: output format %d not implemented on the host (NV12 = 4 only)", m->format);
         ret_x(c, ST_UNSUPPORTED);
@@ -576,6 +800,18 @@ static void set_format(Cpu *c, int w, int h, uint64_t md) {
     md_set_int32(c, md, "nv12-uv-offset", w * h);
 }
 
+// The decoded audio: interleaved 16-bit PCM (MediaCodec's audio/raw)
+static void set_audio_format(Cpu *c, int rate, int channels, uint64_t md) {
+    rt_call(c, G.md_set_string, 3, md, U("mime"), U("audio/raw"));
+    md_set_int32(c, md, "sample-rate", rate);
+    md_set_int32(c, md, "channel-count", channels);
+    md_set_int32(c, md, "pcm-encoding", 2);   // ENCODING_PCM_16BIT
+}
+static void put_format(Cpu *c, const Movie *m, uint64_t md) {
+    if (m->kind == KIND_AAC) set_audio_format(c, m->rate, m->channels, md);
+    else set_format(c, m->w, m->h, md);
+}
+
 // Status GetOutputFormat(MediaData *format)
 static void ov_get_output_format(Cpu *c) {
     uint64_t md = arg_x(c, 1);
@@ -583,10 +819,10 @@ static void ov_get_output_format(Cpu *c) {
     if (!m) { pass(c, MOVIE_GET_OUTPUT_FORMAT); return; }
     if (!md) { ret_x(c, ST_NULL); return; }
     plat_mutex_lock_shared(&m->mu);
-    int ok = m->configured, w = m->w, h = m->h;
+    int ok = m->configured;
     plat_mutex_unlock_shared(&m->mu);
     if (!ok) { ret_x(c, ST_ERROR); return; }
-    set_format(c, w, h, md);
+    put_format(c, m, md);
     ret_x(c, ST_OK);
 }
 
@@ -638,7 +874,11 @@ static void ov_flush(Cpu *c) {
     if (!m) { pass(c, MOVIE_FLUSH); return; }
     plat_mutex_lock(&m->mu);
     int away = quiesce(m);
-    if (m->configured) {
+    if (m->configured && m->mc) {
+        mc_flush(m->mc);
+        spill_clear(m);
+        reset_queues(m);
+    } else if (m->configured) {
         vpx_codec_destroy(&m->vpx);
         m->vpx_live = 0;
         if (!vpx_open(m)) rt_fatal("movie: libvpx VP9 decoder re-initialisation");
@@ -783,7 +1023,7 @@ static void ov_get_output_size(Cpu *c) {
     if (!size || !count) { ret_x(c, ST_NULL); return; }
     plat_mutex_lock_shared(&m->mu);
     *count = 1;
-    *size = m->configured ? frame_bytes(m) : 0;
+    *size = m->configured ? slot_bytes(m) : 0;
     plat_mutex_unlock_shared(&m->mu);
     ret_x(c, ST_OK);
 }
@@ -823,10 +1063,10 @@ static void ov_get_last_error(Cpu *c) {
 
 static int output_format(Cpu *c, Movie *m, int index, uint64_t md) {
     plat_mutex_lock_shared(&m->mu);
-    int ok = index >= 0 && index < OUT_BUFS && m->out_held[index], w = m->w, h = m->h;
+    int ok = index >= 0 && index < OUT_BUFS && m->out_held[index];
     plat_mutex_unlock_shared(&m->mu);
     if (!ok) return ST_ERROR;
-    set_format(c, w, h, md);
+    put_format(c, m, md);
     return ST_OK;
 }
 

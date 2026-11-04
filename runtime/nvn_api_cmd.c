@@ -864,6 +864,12 @@ NVN_API(nvnCommandBufferDrawElementsInstanced) {
 NVN_API(nvnCommandBufferDrawElementsIndirect) {
     *REC(cmd_of(c), OP_DRAW_IDX_IND, p_draw_idx_ind) = (p_draw_idx_ind){(int)arg_x(c, 1), (int)arg_x(c, 2), arg_x(c, 3), arg_x(c, 4)};
 }
+// void nvnCommandBufferDrawArraysIndirect(NVNcommandBuffer *cmd, NVNdrawPrimitive prim, NVNbufferAddress indirect):
+// the same op without indices (index type -1); the replay draws with vkCmdDrawIndirect, whose argument layout
+// (count, instances, first vertex, base instance) is NVN's.
+NVN_API(nvnCommandBufferDrawArraysIndirect) {
+    *REC(cmd_of(c), OP_DRAW_IDX_IND, p_draw_idx_ind) = (p_draw_idx_ind){(int)arg_x(c, 1), -1, 0, arg_x(c, 2)};
+}
 // void nvnCommandBufferDispatchCompute(NVNcommandBuffer *cmd, int x, int y, int z): caller = the game's return address
 NVN_API(nvnCommandBufferDispatchCompute) {
     *REC(cmd_of(c), OP_DISPATCH, p_dispatch) = (p_dispatch){(int)arg_x(c, 1), (int)arg_x(c, 2), (int)arg_x(c, 3), c->x[30]};
@@ -951,7 +957,18 @@ NVN_API(nvnCommandBufferDownsample) {
     o->flags = NVN_COPY_FLAGS_LINEAR_FILTER_BIT;
 }
 // void nvnCommandBufferSetCopyRowStride(NVNcommandBuffer *cmd, ptrdiff_t stride)
-NVN_API(nvnCommandBufferSetCopyRowStride) { REC(cmd_of(c), OP_COPY_STRIDE, p_copy_stride)->stride = (int64_t)arg_x(c, 1); }
+NVN_API(nvnCommandBufferSetCopyRowStride) {
+    p_copy_stride *p = REC(cmd_of(c), OP_COPY_STRIDE, p_copy_stride);
+    p->stride = (int64_t)arg_x(c, 1);
+    p->image = 0;
+}
+// void nvnCommandBufferSetCopyImageStride(NVNcommandBuffer *cmd, ptrdiff_t stride): bytes between the 2D images
+// (layers or 3D slices) of a buffer side; 0 packs them at row stride times height.
+NVN_API(nvnCommandBufferSetCopyImageStride) {
+    p_copy_stride *p = REC(cmd_of(c), OP_COPY_STRIDE, p_copy_stride);
+    p->stride = (int64_t)arg_x(c, 1);
+    p->image = 1;
+}
 // void nvnCommandBufferSetBlendColor(NVNcommandBuffer *cmd, const float *rgba)
 NVN_API(nvnCommandBufferSetBlendColor) { memcpy(REC(cmd_of(c), OP_BLEND_COLOR, p_blend_color)->rgba, arg_p(c, 1), 16); }
 

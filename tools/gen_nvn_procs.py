@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 NVN_DIR = ROOT / "refs/MacNativeGames/games/totk/third_party/d2r_gfx/gfx/nvn"
 OUT = ROOT / "runtime/nvn_procs.inc"
 
-NOT_LOADED = {"nvnDeviceApplyDeferredFinalizes", "nvnQueueAcquireTexture"}
+NOT_LOADED = {"nvnDeviceApplyDeferredFinalizes", "nvnQueueAcquireTexture"}   # MUA3 loads both: runtime/nvn_procs.inc adds them at its end by hand
 SUBSDK0 = [  # section 0.1: asked by the movie library through nvnDeviceGetProcAddress
     "nvnDeviceGetProcAddress",
     "nvnSyncFinalize",

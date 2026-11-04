@@ -191,6 +191,9 @@ extern const int rt_game_version;                          // the game build: 11
 extern const char rt_port_version[];                       // VERSION at the build's root: 0.1.0, 0.1.0+973c626 in a release
 #define RT_V110 (rt_game_version == 110)                    // 1.1.0: its own boot constants and data slots
 #define RT_V143 (rt_game_version >= 143)
+extern const int rt_game_mua3;                             // 1 in a Marvel Ultimate Alliance 3 build (--game mua3)
+#define RT_MUA3 (rt_game_mua3 != 0)                        // off: every hook tied to a TotK address or constant
+#define RT_PROGRAM_ID (RT_MUA3 ? 0x010060700ac50000ull : 0x0100f2c0115b6000ull)   // the game's application id
 
 // ---- kernel (kernel.c)
 typedef struct RtThread RtThread;

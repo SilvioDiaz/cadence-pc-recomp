@@ -124,3 +124,17 @@ HOST_OVERRIDE("_ZN2nn2vi11CreateLayerEPPNS0_5LayerEPNS0_7DisplayE", ov_create_la
 HOST_OVERRIDE("_ZN2nn2vi15GetNativeWindowEPPvPNS0_5LayerE", ov_native_window);
 HOST_OVERRIDE("_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE", ov_vsync_event);
 HOST_OVERRIDE("nvnBootstrapLoader", ov_nvn_bootstrap);
+
+// Older SDK teardown and layer calls (MUA3): the host window lives as long as the process, so closing the display,
+// destroying the layer, finalising vi or the graphics firmware only log; the layer's scaling mode is the window's own.
+static void ov_vi_teardown(Cpu *c) {
+    char at[96];
+    rt_log("vi: teardown call from %s ignored (the window stays)", ldr_describe(c->x[30] - 4, at, sizeof at));
+    ret_x(c, 0);
+}
+static void ov_layer_scaling(Cpu *c) { ret_x(c, 0); }
+HOST_OVERRIDE("_ZN2nn2vi12CloseDisplayEPNS0_7DisplayE", ov_vi_teardown);
+HOST_OVERRIDE("_ZN2nn2vi12DestroyLayerEPNS0_5LayerE", ov_vi_teardown);
+HOST_OVERRIDE("_ZN2nn2vi8FinalizeEv", ov_vi_teardown);
+HOST_OVERRIDE("_ZN2nv16FinalizeGraphicsEv", ov_vi_teardown);
+HOST_OVERRIDE("_ZN2nn2vi19SetLayerScalingModeEPNS0_5LayerENS0_11ScalingModeE", ov_layer_scaling);

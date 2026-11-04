@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "audren.h"
+#include "cfg.h"
 #include "host.h"
 #include "ipc.h"
 #include "nfp.h"
@@ -264,6 +265,14 @@ static void sm_handler(IpcSession *s, const IpcRequest *rq, IpcResponse *rs) {
             }
         fflush(stdout);
         ipc_backtrace();
+        // TOTK_IPC_SOFT=1 (porting aid, off by default): answer sm's "not registered" and let the game go on, so one
+        // run lists every missing service instead of stopping at the first. The SDK client may abort on it.
+        const char *soft = cfg_get("TOTK_IPC_SOFT");
+        if (soft && !strcmp(soft, "1")) {
+            rt_log("sm: service \"%s\" is not implemented: answered not registered (TOTK_IPC_SOFT=1)", name);
+            rs->result = 0xE15u;   // sm module 21, description 7
+            return;
+        }
         rt_fatal("sm: service \"%s\" is not implemented", name);
     }
     default: ipc_unimplemented(s, rq);

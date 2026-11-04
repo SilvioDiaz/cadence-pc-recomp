@@ -741,7 +741,7 @@ static uint32_t mount_save(const char *name, const uint64_t *uid) {
 
 static uint8_t save_exists(uint64_t application, const uint64_t *uid) {
     ready();
-    return application == TOTK_APPLICATION_ID && my_uid(uid);
+    return application == RT_PROGRAM_ID && my_uid(uid);
 }
 
 // Other titles' save data (data-link bonuses) is not present on this host.
@@ -1102,6 +1102,22 @@ static uint32_t read_directory(int64_t *count, DirectoryEntry *out, uint64_t h, 
     return 0;
 }
 
+// Result GetDirectoryEntryCount(int64_t *out, DirectoryHandle h): the entries ReadDirectory would still return,
+// counted with the same filters, without moving the read position.
+static uint32_t directory_entry_count(int64_t *out, uint64_t h) {
+    if (h < DIR_BASE || h >= DIR_BASE + NDIRS || !out) return FS_R_INVALID_ARGUMENT;
+    Dir *d = &dirs[h - DIR_BASE];
+    if (!d->used) return FS_R_INVALID_ARGUMENT;
+    int64_t n = 0;
+    for (int64_t i = d->next; i < d->n; i++) {
+        const Listed *e = &d->e[i];
+        if (strlen(e->name) + 1 > 769) continue;
+        if (d->mode & (e->kind == PLAT_FS_DIR ? 1 : 2)) n++;
+    }
+    *out = n;
+    return 0;
+}
+
 static void close_directory(uint64_t h) {
     if (h < DIR_BASE || h >= DIR_BASE + NDIRS || !dirs[h - DIR_BASE].used)
         rt_fatal("fs: close of invalid directory handle %#llx", (unsigned long long)h);
@@ -1140,6 +1156,20 @@ static void ov_save_exists(Cpu *c) { ret_x(c, save_exists(arg_x(c, 0), arg_p(c, 
 static void ov_mount_temp(Cpu *c) { ret_x(c, mount_temp(arg_p(c, 0))); }
 static void ov_unmount(Cpu *c) { unmount(arg_p(c, 0)); }
 static void ov_commit(Cpu *c) { ret_x(c, commit(arg_p(c, 0))); }
+// void SetAllocator(void *(*alloc)(size_t), void (*free)(void *, size_t)): the host file system allocates nothing in
+// guest memory. The older SDK's own SetAllocator (MUA3) asks fsp-srv whether the access log is on first.
+static void ov_set_allocator(Cpu *c) { (void)c; }
+static void ov_directory_entry_count(Cpu *c) { ret_x(c, directory_entry_count(arg_p(c, 0), arg_x(c, 1))); }
+// Add-on content (DLC) is not mounted yet: there is none to mount, and its cache needs no room.
+static void ov_mount_aoc(Cpu *c) {
+    rt_log("fs: MountAddOnContent(\"%s\", %d): no add-on content", (const char *)arg_p(c, 0), I32(1));
+    ret_x(c, FS_R_TARGET_NOT_FOUND);
+}
+static void ov_query_aoc_cache(Cpu *c) {
+    uint64_t *out = arg_p(c, 0);
+    if (out) *out = 0;
+    ret_x(c, 0);
+}
 static void ov_create_cache(Cpu *c) { ret_x(c, create_cache(I32(0), I64(1), I64(2))); }
 static void ov_delete_cache(Cpu *c) { ret_x(c, delete_cache(I32(0))); }
 static void ov_mount_cache(Cpu *c) { ret_x(c, mount_cache(arg_p(c, 0), I32(1))); }
@@ -1211,6 +1241,12 @@ HOST_OVERRIDE(S_SAVE_EXISTS, ov_save_exists);
 HOST_OVERRIDE(S_MOUNT_TEMP, ov_mount_temp);
 HOST_OVERRIDE(S_UNMOUNT, ov_unmount);
 HOST_OVERRIDE(S_COMMIT, ov_commit);
+// Older SDK forms (MUA3)
+HOST_OVERRIDE("_ZN2nn2fs14CommitSaveDataEPKc", ov_commit);
+HOST_OVERRIDE("_ZN2nn2fs12SetAllocatorEPFPvmEPFvS1_mE", ov_set_allocator);
+HOST_OVERRIDE("_ZN2nn2fs22GetDirectoryEntryCountEPlNS0_15DirectoryHandleE", ov_directory_entry_count);
+HOST_OVERRIDE("_ZN2nn2fs17MountAddOnContentEPKciPvm", ov_mount_aoc);
+HOST_OVERRIDE("_ZN2nn2fs31QueryMountAddOnContentCacheSizeEPmi", ov_query_aoc_cache);
 HOST_OVERRIDE(S_CREATE_CACHE, ov_create_cache);
 HOST_OVERRIDE(S_DELETE_CACHE, ov_delete_cache);
 HOST_OVERRIDE(S_MOUNT_CACHE, ov_mount_cache);

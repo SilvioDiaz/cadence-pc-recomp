@@ -77,6 +77,7 @@ typedef struct VkExec {
     p_prim_restart prim_restart;         // OP_PRIM_RESTART: applied to indexed strip and fan draws (op_draw_idx)
     float blend_color[4];                // OP_BLEND_COLOR
     int64_t copy_stride;                 // OP_COPY_STRIDE: row stride of buffer <-> texture copies (vk_exec_xfer.c)
+    int64_t copy_image_stride;           // OP_COPY_STRIDE with image: stride between the layers or slices
     const dpool_t *tex_pool, *samp_pool; // OP_SET_TEX_POOL, OP_SET_SAMP_POOL
     // Pipeline inputs. vk_exec.c writes depth_clamp (OP_DEPTH_CLAMP), raster_discard (OP_RASTER_DISCARD) and, at pass
     // begin, color_fmt, depth_fmt and samples; vk_exec_draw.c owns every other field (shaders, prim, y_flip, state
@@ -84,8 +85,11 @@ typedef struct VkExec {
     VkPipeState pipe;
 
     // ---- vk_exec_draw.c slots (draws, binds, dispatch): left empty by vk_exec.c
-    const prog_t *prog;                  // OP_BIND_PROGRAM
+    const prog_t *prog;                  // OP_BIND_PROGRAM: the last program bound
     int32_t prog_stages;
+    // The program bound for each NVN stage (vertex 0, fragment 1, ..., compute 5): a bind sets the stages of its mask
+    // and keeps the others, so a game may bind one program per stage (MUA3: every program has a single stage).
+    const prog_t *stage_prog[6];
     NVNbufferRange vbuf[16];             // OP_BIND_VBUF
     p_bind_buf ubo[6][18], ssbo[6][16];  // OP_BIND_UBO / OP_BIND_SSBO per stage and index
     uint64_t tex[6][128], samp[6][128], img[6][32];   // OP_BIND_TEX / OP_BIND_SAMP / OP_BIND_IMG handles per stage

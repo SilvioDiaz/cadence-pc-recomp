@@ -944,3 +944,101 @@ HOST_OVERRIDE("_ZN2nn4time48CalculateStandardUserSystemClockDifferenceByUserERKN
 HOST_OVERRIDE("_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE", ov_font_state);
 HOST_OVERRIDE("_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE", ov_font_address);
 HOST_OVERRIDE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", ov_font_size);
+
+// ==== older SDK forms and the offline account (MUA3)
+#define ACCOUNT_R_NSA_UNAVAILABLE 0x1f07cu   // account module 124: no network service account (offline)
+#define AOC_R_NONE 0u
+
+// void OpenPreselectedUser(UserHandle *out): the older SDK form of TryOpenPreselectedUser; it aborts on failure.
+static void ov_open_user_strict(Cpu *c) {
+    ov_open_user(c);
+    if (!c->x[0]) rt_fatal("nn::account::OpenPreselectedUser: no free user handle");
+    ret_x(c, 0);
+}
+
+// The network service account (Nintendo Account link) does not exist offline. The async token request completes at
+// once with that result: HasDone reads true and its event is signalled.
+static void ov_nsa_unavailable(Cpu *c) {
+    static volatile int32_t seen;
+    if (!plat_xchg32(&seen, 1)) {
+        char lr[96];
+        rt_log("account: network service account requested from %s: unavailable (offline)", caller(c, lr, sizeof lr));
+    }
+    ret_x(c, ACCOUNT_R_NSA_UNAVAILABLE);
+}
+static void ov_async_has_done(Cpu *c) {
+    uint8_t *done = arg_p(c, 1);
+    if (done) *done = 1;
+    ret_x(c, 0);
+}
+static void ov_async_event(Cpu *c) {
+    uint64_t ev = arg_x(c, 1);
+    if (!ev) rt_fatal("nn::account::AsyncContext::GetSystemEvent: null event");
+    kern_bind_system_event(c, ev, 0);
+    kern_signal_system_event(ev);
+    ret_x(c, 0);
+}
+static void ov_async_cancel(Cpu *c) { ret_x(c, 0); }
+
+// int CountAddOnContent(): no add-on content is mounted yet. GetAddOnContentListChangedEvent: an event that never
+// fires (the list never changes).
+static void ov_aoc_count(Cpu *c) { ret_x(c, AOC_R_NONE); }
+static void ov_aoc_changed_event(Cpu *c) {
+    uint64_t ev = arg_x(c, 0);
+    if (!ev) rt_fatal("nn::aoc::GetAddOnContentListChangedEvent: null event");
+    kern_bind_system_event(c, ev, 1);
+    ret_x(c, 0);
+}
+
+// void oe::GetDisplayVersion(DisplayVersion *out): char[16], the update's version
+static void ov_display_version(Cpu *c) {
+    char *out = arg_p(c, 0);
+    if (!out) rt_fatal("nn::oe::GetDisplayVersion: null output");
+    memset(out, 0, 16);
+    strcpy(out, RT_MUA3 ? "4.0.1" : "1.0.0");
+}
+
+// StandardNetworkSystemClock::now(): seconds in x0, the host's clock; IsAccuracySufficient: false, as on a Switch
+// that never synchronised its clock with the network.
+static void ov_network_now(Cpu *c) { ret_x(c, (uint64_t)posix_now()); }
+static void ov_network_accuracy(Cpu *c) { ret_x(c, 0); }
+
+// void detail::UnexpectedDefaultImpl(const char *condition, const char *function, int line): the SDK's
+// NN_UNEXPECTED_DEFAULT, a switch that reached a case it never expected.
+static void ov_unexpected_default(Cpu *c) {
+    const char *cond = arg_p(c, 0), *fn = arg_p(c, 1);
+    char lr[96];
+    rt_fatal("sdk: unexpected default (%s) in %s line %d, from %s", cond ? cond : "?", fn ? fn : "?", (int)arg_x(c, 2),
+             caller(c, lr, sizeof lr));
+}
+
+HOST_OVERRIDE("_ZN2nn7account19OpenPreselectedUserEPNS0_10UserHandleE", ov_open_user_strict);
+HOST_OVERRIDE("_ZN2nn7account26GetNetworkServiceAccountIdEPNS0_23NetworkServiceAccountIdERKNS0_10UserHandleE",
+              ov_nsa_unavailable);
+HOST_OVERRIDE("_ZN2nn7account36EnsureNetworkServiceAccountAvailableERKNS0_10UserHandleE", ov_nsa_unavailable);
+HOST_OVERRIDE("_ZN2nn7account37LoadNetworkServiceAccountIdTokenCacheEPmPcmRKNS0_10UserHandleE", ov_nsa_unavailable);
+HOST_OVERRIDE("_ZN2nn7account44EnsureNetworkServiceAccountIdTokenCacheAsyncEPNS0_12AsyncContextERKNS0_10UserHandleE",
+              ov_nsa_unavailable);
+HOST_OVERRIDE("_ZN2nn7account12AsyncContext7HasDoneEPb", ov_async_has_done);
+HOST_OVERRIDE("_ZN2nn7account12AsyncContext9GetResultEv", ov_nsa_unavailable);
+HOST_OVERRIDE("_ZN2nn7account12AsyncContext14GetSystemEventEPNS_2os11SystemEventE", ov_async_event);
+HOST_OVERRIDE("_ZN2nn7account12AsyncContext6CancelEv", ov_async_cancel);
+HOST_OVERRIDE("_ZN2nn3aoc17CountAddOnContentEv", ov_aoc_count);
+HOST_OVERRIDE("_ZN2nn3aoc31GetAddOnContentListChangedEventEPNS_2os11SystemEventE", ov_aoc_changed_event);
+HOST_OVERRIDE("_ZN2nn2oe17GetDisplayVersionEPNS0_14DisplayVersionE", ov_display_version);
+HOST_OVERRIDE("_ZN2nn4time26StandardNetworkSystemClock3nowEv", ov_network_now);
+HOST_OVERRIDE("_ZN2nn4time26StandardNetworkSystemClock20IsAccuracySufficientEv", ov_network_accuracy);
+HOST_OVERRIDE("_ZN2nn6detail21UnexpectedDefaultImplEPKcS2_i", ov_unexpected_default);
+
+// LanguageCode settings::LanguageCode::Make(Language): the fixed table of nn::settings::Language (the older SDK asks
+// the set: service). LanguageCode is the code's bytes in x0, as GetDesiredLanguage returns it.
+static void ov_language_code_make(Cpu *c) {
+    static const char *const codes[] = {"ja", "en-US", "fr", "de", "it", "es", "zh-CN", "ko", "nl", "pt", "ru",
+                                        "zh-TW", "en-GB", "fr-CA", "es-419", "zh-Hans", "zh-Hant", "pt-BR"};
+    uint64_t lang = (uint32_t)arg_x(c, 0), v = 0;
+    if (lang >= sizeof codes / sizeof *codes) rt_fatal("nn::settings::LanguageCode::Make: unknown language %llu",
+                                                      (unsigned long long)lang);
+    memcpy(&v, codes[lang], strlen(codes[lang]));
+    ret_x(c, v);
+}
+HOST_OVERRIDE("_ZN2nn8settings12LanguageCode4MakeENS0_8LanguageE", ov_language_code_make);

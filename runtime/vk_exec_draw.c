@@ -650,6 +650,12 @@ static int find_stage(const prog_t *p, int nvn_stage, const uint8_t **ctl, const
     return 1;
 }
 
+// The program that serves NVN stage st: the one bound for that stage, else the last one bound.
+static inline const prog_t *prog_of(const VkExec *ex, int st) {
+    const prog_t *p = (unsigned)st < 6 ? ex->stage_prog[st] : NULL;
+    return p ? p : ex->prog;
+}
+
 // Texture and image types of a stage's first 32 slots, each kept with the handle and the generation and slot token it
 // was looked up under: a slot is looked up again, a hash probe, only when the handle changed or its slot may resolve
 // otherwise (slot_still).
@@ -738,10 +744,11 @@ static const GfxShader *shader_for(VkExec *ex, int st, int *present, int *pendin
     uint32_t len;
     *present = 0;
     if (pending) *pending = 0;
-    if (!ex->prog || !find_stage(ex->prog, st, &ctl, &code, &len)) return NULL;
+    const prog_t *prog = prog_of(ex, st);
+    if (!prog || !find_stage(prog, st, &ctl, &code, &len)) return NULL;
     *present = 1;
     GfxShaderAnswers a;
-    uint64_t serial = ex->prog->serial;
+    uint64_t serial = prog->serial;
     answers_for(ex, st, ctl, slot_mask_of(serial, st), &a);
     a.mvprev = (uint8_t)(sf_mvprev && st == NVN_STAGE_VS);
     ShaderEnt *set = NULL;
@@ -910,10 +917,10 @@ static VkDescriptorBufferInfo ubo_info(VkExec *ex, int st, int slot) {
     uint64_t max = LIM.ubo_max, align = LIM.ubo_align;
     VkDescriptorBufferInfo bi;
     if (slot == 0 && c0_on()) return c0_info(ex, st);
-    if (slot == 1 && ex->prog) {   // compiler constants stored after the shader code
+    if (slot == 1 && prog_of(ex, st)) {   // compiler constants stored after the shader code
         const uint8_t *ctl, *code;
         uint32_t len, c1;
-        if (find_stage(ex->prog, st, &ctl, &code, &len)) {
+        if (find_stage(prog_of(ex, st), st, &ctl, &code, &len)) {
             memcpy(&c1, ctl + 0x700, 4);
             if (c1 < len && bind_range(ex, (uint64_t)(uintptr_t)code + c1, len - c1, align, max, VK_MUSE_UBO, 0, &bi))
                 return bi;
@@ -1683,6 +1690,11 @@ static int bind_sig(const VkExec *ex, const VkPipeInfo *info) {
     PUT((uintptr_t)info);
     PUT((uintptr_t)ex->prog);
     PUT(ex->prog->serial);
+    for (int st = 0; st < 2; st++) {   // per-stage programs (MUA3): the vertex and fragment programs drawn with
+        const prog_t *p = prog_of(ex, st);
+        PUT((uintptr_t)p);
+        PUT(p ? p->serial : 0);
+    }
     PUT((uint64_t)vk_texture_slots_gen() << 32 | vk_texture_epoch());
     PUT((uint64_t)vk_sampler_gen() << 32 | (uint32_t)ex->nfbl);
     PUT(vk_mem_gen() + vk_usnap_gen());   // both only grow
@@ -2046,6 +2058,8 @@ static int pipe_skip_mode(void) {
 typedef struct {
     const prog_t *prog;
     uint64_t serial;
+    const prog_t *stage[2];        // the vertex and fragment programs (prog_of) and their serials
+    uint64_t stage_serial[2];
     uint32_t gen, tex_serial;
     uint64_t tex[2][32], img[2][32];
     VkPipeState pipe;
@@ -2054,6 +2068,10 @@ static struct { int on, valid, has_fs; MemoKey k; const GfxShader *vs, *fs; } SM
 
 static void memo_key(const VkExec *ex, uint32_t gen, MemoKey *k) {
     k->prog = ex->prog, k->serial = ex->prog->serial, k->gen = gen, k->tex_serial = ex->tex_serial;
+    for (int st = 0; st < 2; st++) {
+        k->stage[st] = prog_of(ex, st);
+        k->stage_serial[st] = k->stage[st] ? k->stage[st]->serial : 0;
+    }
     memcpy(k->tex[0], ex->tex[NVN_STAGE_VS], sizeof k->tex[0]), memcpy(k->tex[1], ex->tex[NVN_STAGE_FS], sizeof k->tex[1]);
     memcpy(k->img[0], ex->img[NVN_STAGE_VS], sizeof k->img[0]), memcpy(k->img[1], ex->img[NVN_STAGE_FS], sizeof k->img[1]);
     memcpy(&k->pipe, &ex->pipe, sizeof k->pipe);
@@ -2062,6 +2080,10 @@ static void memo_key(const VkExec *ex, uint32_t gen, MemoKey *k) {
 static int memo_match(const VkExec *ex, uint32_t gen, MemoKey *k) {
     if (k->prog != ex->prog || k->serial != ex->prog->serial || k->gen != gen || memcmp(&k->pipe, &ex->pipe, sizeof k->pipe))
         return 0;
+    for (int st = 0; st < 2; st++) {
+        const prog_t *p = prog_of(ex, st);
+        if (k->stage[st] != p || k->stage_serial[st] != (p ? p->serial : 0)) return 0;
+    }
     if (k->tex_serial == ex->tex_serial) return 1;
     if (memcmp(k->tex[0], ex->tex[NVN_STAGE_VS], sizeof k->tex[0]) || memcmp(k->tex[1], ex->tex[NVN_STAGE_FS], sizeof k->tex[1]) ||
         memcmp(k->img[0], ex->img[NVN_STAGE_VS], sizeof k->img[0]) || memcmp(k->img[1], ex->img[NVN_STAGE_FS], sizeof k->img[1]))
@@ -3073,6 +3095,19 @@ static void op_draw_idx(VkExec *ex, const p_draw_idx *d) {
 // inside a pass; gl_BaseInstance of the Vulkan draw is the argument's. Byte indices need the count to be widened: skipped.
 static void op_draw_idx_ind(VkExec *ex, const p_draw_idx_ind *d) {
     c0_binst = 0;
+    if (d->itype == -1) {   // DrawArraysIndirect (MUA3): no index buffer
+        VkMemSpan ip;
+        if (!vk_mem_resolve(d->ind, sizeof(VkDrawIndirectCommand), &ip) || ip.offset % 4)
+            return warn_once(W_INDIRECT, "indirect draw arguments at %#llx are not backed or not aligned: draws skipped", (unsigned long long)d->ind);
+        if (!prepare_draw(ex, d->prim, 0x7fffffff, 0)) return;
+        vk_exec_frame.draws++;
+        VK_MEM_USE(ip);
+        vkCmdDrawIndirect(ex->cb, ip.buffer, ip.offset, 1, sizeof(VkDrawIndirectCommand));
+        ex->recorded++;
+        vk_mem_count(ip.cls, VK_MUSE_IND, sizeof(VkDrawIndirectCommand));
+        VK_MEM_BOUND(ip);
+        return;
+    }
     if (d->itype != NVN_INDEX_TYPE_UNSIGNED_SHORT && d->itype != NVN_INDEX_TYPE_UNSIGNED_INT)
         return warn_once(W_INDEX, "indirect draw with index type %d: skipped", d->itype);
     VkMemSpan ib, ip;
@@ -3193,6 +3228,9 @@ void vk_exec_op_draw(VkExec *ex, uint32_t op, const void *payload) {
     case OP_BIND_PROGRAM: {
         const p_bind_program *b = payload;
         ex->prog = b->prog, ex->prog_stages = b->stages;
+        // NVNshaderStageBits: bit st for NVN stage st. A null program unbinds the stages of the mask.
+        for (int st = 0; st < 6; st++)
+            if (b->stages & (1 << st)) ex->stage_prog[st] = b->prog;
         bind_gen++;
         break;
     }

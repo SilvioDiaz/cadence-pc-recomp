@@ -297,6 +297,40 @@ static void raise_window(HWND h) {
     }
 }
 
+// TOTK_MONITOR=<n> (1 = the first monitor Windows lists) or "secondary" (the first that is not the primary): the
+// monitor the window opens on, centred in its work area. Unset: where Windows puts it.
+typedef struct { RECT work[16]; int primary[16], n; } Monitors;
+static BOOL CALLBACK list_monitor(HMONITOR m, HDC dc, LPRECT r, LPARAM p) {
+    (void)dc, (void)r;
+    Monitors *l = (Monitors *)p;
+    MONITORINFO mi = {.cbSize = sizeof mi};
+    if (l->n < 16 && GetMonitorInfoW(m, &mi)) {
+        l->work[l->n] = mi.rcWork;
+        l->primary[l->n++] = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    }
+    return TRUE;
+}
+static int chosen_monitor(RECT *out) {
+    const char *e = cfg_get("TOTK_MONITOR");
+    if (!e || !*e) return 0;
+    Monitors l = {0};
+    EnumDisplayMonitors(NULL, NULL, list_monitor, (LPARAM)&l);
+    int pick = -1;
+    if (!strcmp(e, "secondary")) {
+        for (int i = 0; i < l.n && pick < 0; i++)
+            if (!l.primary[i]) pick = i;
+    } else if (atoi(e) >= 1 && atoi(e) <= l.n) {
+        pick = atoi(e) - 1;
+    }
+    if (pick < 0) {
+        rt_log("gfx: TOTK_MONITOR=%s: no such monitor (%d connected)", e, l.n);
+        return 0;
+    }
+    *out = l.work[pick];
+    rt_log("gfx: window on monitor %d of %d (TOTK_MONITOR=%s)", pick + 1, l.n, e);
+    return 1;
+}
+
 static void window_main(void *arg) {
     (void)arg;
     HINSTANCE inst = GetModuleHandleW(NULL);
@@ -317,8 +351,20 @@ static void window_main(void *arg) {
     // button flashes, and TOTK_FULLSCREEN waits for the first activation.
     // TOTK_BACKGROUND_WINDOW=1 (test runs): no flashing, never fullscreen at start, and F11 keeps the window's place.
     int background = g_background = cfg_get("TOTK_BACKGROUND_WINDOW") && atoi(cfg_get("TOTK_BACKGROUND_WINDOW"));
-    g_hwnd = CreateWindowExW(0, wc.lpszClassName, L"TotK Recomp", WND_STYLE, CW_USEDEFAULT, CW_USEDEFAULT, ow, oh, NULL,
-                             NULL, inst, NULL);
+    RECT mon;
+    int x = CW_USEDEFAULT, y = CW_USEDEFAULT;
+    if (chosen_monitor(&mon)) {
+        int mw = mon.right - mon.left, mh = mon.bottom - mon.top;
+        if (ow > mw || oh > mh) {   // a window larger than that monitor (a portrait one): the client shrinks, same aspect
+            double k = (double)mw / ow < (double)mh / oh ? (double)mw / ow : (double)mh / oh;
+            cw = (int)(cw * k) & ~1, ch = (int)(ch * k) & ~1;
+            outer_size(NULL, cw, ch, &ow, &oh);
+            rt_log("gfx: window %dx%d to fit that monitor's %dx%d work area", cw, ch, mw, mh);
+        }
+        x = mon.left + (mw > ow ? (mw - ow) / 2 : 0);
+        y = mon.top + (mh > oh ? (mh - oh) / 2 : 0);
+    }
+    g_hwnd = CreateWindowExW(0, wc.lpszClassName, L"TotK Recomp", WND_STYLE, x, y, ow, oh, NULL, NULL, inst, NULL);
     if (!g_hwnd) {
         rt_log("gfx: CreateWindowEx failed (%lu)", GetLastError());
         g_wnd_failed = 1;

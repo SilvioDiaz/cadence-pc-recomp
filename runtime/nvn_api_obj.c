@@ -31,6 +31,12 @@ NVN_API(nvnTexturePoolFinalize) { (void)c; }
 NVN_API(nvnTexturePoolRegisterTexture) {
     gfx_backend()->texture_register((int)arg_x(c, 1), arg_p(c, 2), arg_p(c, 3));
 }
+// void nvnTexturePoolRegisterImage(const NVNtexturePool *tp, int id, const NVNtexture *t, const NVNtextureView *v):
+// image and texture descriptors share the pool, and nvnDeviceGetImageHandle hands out the id itself, so an image
+// binding finds the texture registered at that id.
+NVN_API(nvnTexturePoolRegisterImage) {
+    gfx_backend()->texture_register((int)arg_x(c, 1), arg_p(c, 2), arg_p(c, 3));
+}
 // NVNboolean nvnSamplerPoolInitialize(NVNsamplerPool *sp, const NVNmemoryPool *p, ptrdiff_t offset, int n)
 NVN_API(nvnSamplerPoolInitialize) {
     *(dpool_t *)arg_p(c, 0) = (dpool_t){arg_p(c, 1), (int64_t)arg_x(c, 2), (int32_t)arg_x(c, 3)};
@@ -690,6 +696,18 @@ NVN_API(nvnWindowAcquireTexture) {
     }
     ret_x(c, NVN_WINDOW_ACQUIRE_TEXTURE_RESULT_SUCCESS);
 }
+
+// NVNqueueAcquireTextureResult nvnQueueAcquireTexture(NVNqueue *q, NVNwindow *w, int *index): the queue form of
+// WindowAcquireTexture (MUA3's NVN): the queue waits for the image instead of a sync, which submit-order presents
+// already give. The same pacing and image choice.
+NVN_API(nvnQueueAcquireTexture) {
+    c->x[0] = c->x[1];
+    c->x[1] = 0;   // no sync
+    nvnp_nvnWindowAcquireTexture(c);
+}
+
+// void nvnDeviceApplyDeferredFinalizes(NVNdevice *d, int age): the host finalises objects at once, so nothing waits.
+NVN_API(nvnDeviceApplyDeferredFinalizes) { (void)c; }
 
 // void nvnQueuePresentTexture(NVNqueue *q, NVNwindow *w, int index): queues the copy and returns at once. The display
 // time comes from the pacer: the back end's present thread holds the host present until then (back-edge pacing, as the

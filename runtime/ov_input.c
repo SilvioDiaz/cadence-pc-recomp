@@ -101,6 +101,24 @@ static void ov_states_full_key(Cpu *c) { npad_states(c, STYLE_FULL_KEY); }
 static void ov_states_handheld(Cpu *c) { npad_states(c, STYLE_HANDHELD); }
 static void ov_states_joycon(Cpu *c) { npad_states(c, 0); }
 
+// void GetNpadState(<State> *out, const NpadIdType &id): the older SDKs' one-state form (MUA3). The same answer as
+// GetNpadStates with a count of 1; it returns nothing.
+static void npad_state_one(Cpu *c, uint32_t want) {
+    c->x[2] = c->x[1];
+    c->x[1] = 1;
+    npad_states(c, want);
+    ret_x(c, 0);
+}
+static void ov_state_full_key(Cpu *c) { npad_state_one(c, STYLE_FULL_KEY); }
+static void ov_state_handheld(Cpu *c) { npad_state_one(c, STYLE_HANDHELD); }
+static void ov_state_joycon(Cpu *c) { npad_state_one(c, 0); }
+
+// The other older-SDK forms MUA3 calls: NpadJoyHoldType, handheld activation and Joy-Con assignment only matter for
+// Joy-Cons, which the host never reports connected.
+static void ov_get_hold_type(Cpu *c) { ret_x(c, 0); }   // NpadJoyHoldType_Vertical
+static void ov_handheld_activation(Cpu *c) { (void)c; }
+static void ov_assignment_single(Cpu *c) { (void)c; }
+
 // void SetNpadJoyHoldType(NpadJoyHoldType type)
 static void ov_hold_type(Cpu *c) {
     int64_t t = (int32_t)arg_x(c, 0);
@@ -474,6 +492,20 @@ static void ov_six_state(Cpu *c) {
     six_fill(arg_p(c, 0), 1, arg_p(c, 1), "GetSixAxisSensorState");
     ret_x(c, 0);
 }
+
+// Older SDK names (MUA3): the same functions without detail::, and GetNpadState.
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", ov_state_full_key);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyDualStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyLeftStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadJoyRightStateERKj", ov_state_joycon);
+HOST_OVERRIDE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", ov_state_handheld);
+HOST_OVERRIDE("_ZN2nn3hid18GetNpadJoyHoldTypeEv", ov_get_hold_type);
+HOST_OVERRIDE("_ZN2nn3hid29SetNpadHandheldActivationModeENS0_26NpadHandheldActivationModeE", ov_handheld_activation);
+HOST_OVERRIDE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleERKjNS0_17NpadJoyDeviceTypeE", ov_assignment_single);
+HOST_OVERRIDE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", ov_vib_init);
+HOST_OVERRIDE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", ov_vib_send);
+HOST_OVERRIDE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", ov_six_start);
+HOST_OVERRIDE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", ov_six_state);
 
 HOST_OVERRIDE("_ZN2nn3hid14InitializeNpadEv", ov_initialize_npad);
 HOST_OVERRIDE("_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm", ov_supported_ids);

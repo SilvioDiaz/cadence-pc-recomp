@@ -471,6 +471,14 @@ NVN_API(nvnQueueFenceSync) {
     s->fenced = 1;
     s->fence = nvn_fence_last();
 }
+// void nvnQueueWaitSync(NVNqueue *q, const NVNsync *s): the queue's later commands wait for the sync on the GPU. The
+// back end replays every queue's submits in submit order, so a sync fenced before this call is already behind them.
+// A sync not fenced yet would stall the queue until some later fence: that is logged once and not waited for.
+NVN_API(nvnQueueWaitSync) {
+    const sync_t *s = arg_p(c, 1);
+    static volatile int32_t unfenced;
+    if (s && !s->fenced && !plat_xchg32(&unfenced, 1)) rt_log("nvn: QueueWaitSync on a sync not fenced yet: not waited for");
+}
 // NVNsyncWaitResult nvnSyncWait(const NVNsync *s, uint64_t timeout_ns): a sync never fenced reports a timeout at once;
 // a fenced one is released only after the back end completed that fence value
 NVN_API(nvnSyncWait) {

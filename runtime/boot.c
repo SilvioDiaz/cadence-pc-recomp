@@ -25,6 +25,9 @@
 #include "platform/platform.h"
 
 #define SYM_INIT_START "_ZN2nn4init5StartEmmPFvvES2_S2_"
+// Older SDKs (MUA3's) have nn::init::Start(handle, arguments, loader_ready, module_inits): no finaliser callback.
+// It calls loader_ready first, then initialises the SDK libraries, then module_inits, then nnMain.
+#define SYM_INIT_START_2CB "_ZN2nn4init5StartEmmPFvvES2_"
 // main: return addresses of nnMain's SetFocusHandlingMode call (1.1.0 and 1.2.1 from this port's analysis of main;
 // 1.4.3 from MacNativeGames' scripts/verify_boot.py) and of the first nvnBootstrapLoader call, per game version.
 #define CHECKPOINT_RET (RT_V143 ? 0xbdb48cull : RT_V110 ? 0xeb8c14ull : 0xe7a954ull)
@@ -75,8 +78,30 @@ static void cb_loader_ready(Cpu *c) {
 
 // DT_INIT registers the module with musl (__nnmusl_init_dso) and runs its init_array; the constructor flag reads 2
 // afterwards (MacNativeGames loader.c:458-462).
+// MUA3: DT_INIT of every loaded module in load order (main, subsdk0..9, sdk), with no expected init_array sizes.
+static void module_inits_any(Cpu *c) {
+    for (int i = 0; i < ldr_count(); i++) {
+        const RtLoaded *m = ldr_module(i);
+        if (!m->init) {
+            rt_log("boot: %s has no DT_INIT", m->name);
+            continue;
+        }
+        uint64_t entries = m->init_array_size / 8;
+        rt_log("boot: ENTER %s DT_INIT (%llu init_array entries)", m->name, (unsigned long long)entries);
+        rt_call(c, m->init, 0);
+        uint32_t state = ctor_state(m);
+        rt_logf("boot: DT_INIT %s state=%u (%llu)\n", m->name, state, (unsigned long long)entries);
+        if (state != CTOR_DONE) rt_fatal("boot: %s DT_INIT left its constructor flag at %u, not 2", m->name, state);
+    }
+}
+
 static void cb_module_inits(Cpu *c) {
     if (plat_cas32(&inits_done, 0, 0)) rt_fatal("boot: module constructors requested twice");
+    if (RT_MUA3) {
+        module_inits_any(c);
+        plat_xchg32(&inits_done, 1);
+        return;
+    }
     for (unsigned k = 0; k < sizeof inits_121 / sizeof *inits_121; k++) {
         const RtLoaded *m = module_named(expected_inits[k].name);
         uint64_t entries = m->init_array_size / 8;
@@ -110,6 +135,22 @@ void rt_boot_event(const char *what, Cpu *c, const char *detail) {
     const RtLoaded *main_mod = module_named("main");
     uint64_t ret = c->x[30];
     caller(c, at, sizeof at);
+    if (RT_MUA3) {
+        // The return addresses checked below are TotK's: here the events are logged with the caller instead, and
+        // --boot still ends at the first NVN call.
+        rt_logf("boot: %s %s from %s\n", what, detail ? detail : "", at);
+        if (!strcmp(what, "checkpoint")) {
+            plat_xchg32(&checkpoint_seen, 1);
+            return;
+        }
+        if (!strcmp(what, "nvn") && !rt_config()->seconds) {
+            stats_line();
+            fflush(stdout);
+            fflush(stderr);
+            plat_exit(0);
+        }
+        return;
+    }
     if (!strcmp(what, "checkpoint")) {
         if (ret != main_mod->base + CHECKPOINT_RET)
             rt_fatal("boot: checkpoint %s reached from %s, expected main+%#llx", detail, at,
@@ -318,11 +359,15 @@ static uint64_t cb_addr[3];
 static void guest_main(Cpu *c) {
     uint32_t handle = kern_main_thread(&c);
     uint64_t start = ldr_symbol(SYM_INIT_START);
-    if (!start) rt_fatal("boot: %s is not exported", SYM_INIT_START);
+    int callbacks = 3;
+    if (!start && (start = ldr_symbol(SYM_INIT_START_2CB))) callbacks = 2;
+    if (!start) rt_fatal("boot: neither %s nor %s is exported", SYM_INIT_START, SYM_INIT_START_2CB);
     char d[128];
-    rt_log("boot: ENTER nn::init::Start at %s, main thread %#x", ldr_describe(start, d, sizeof d), handle);
-    // nn::init::Start(main thread handle, arguments region, loader_ready, module_inits, module_finis)
-    rt_call(c, start, 5, (uint64_t)handle, (uint64_t)0, cb_addr[0], cb_addr[1], cb_addr[2]);
+    rt_log("boot: ENTER nn::init::Start at %s (%d callbacks), main thread %#x", ldr_describe(start, d, sizeof d),
+           callbacks, handle);
+    // nn::init::Start(main thread handle, arguments region, loader_ready, module_inits[, module_finis])
+    if (callbacks == 3) rt_call(c, start, 5, (uint64_t)handle, (uint64_t)0, cb_addr[0], cb_addr[1], cb_addr[2]);
+    else rt_call(c, start, 4, (uint64_t)handle, (uint64_t)0, cb_addr[0], cb_addr[1]);
     rt_fatal("boot: nn::init::Start returned");
 }
 
