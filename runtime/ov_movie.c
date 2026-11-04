@@ -594,7 +594,7 @@ static void ov_ctor(Cpu *c) {
     guest_init();
     // MUA3 (H.264 video, type 1; its sound, type 4): the library would abort in NvOsDrvOpen, so the decoder stays a
     // host object whose Configure answers "unsupported" until the host decodes those formats.
-    if ((type != MOVIE_TYPE_VP9 && !RT_MUA3) || mode != MOVIE_MODE_BUFFER || host_off()) {
+    if ((type != MOVIE_TYPE_VP9 && RT_TOTK) || mode != MOVIE_MODE_BUFFER || host_off()) {
         rt_log("movie: decoder type %d mode %d format %d left to the library%s", type, mode, format,
                host_off() ? " (TOTK_MOVIE_HOST=0)" : " (only VP9 in buffer mode runs on the host)");
         pass(c, MOVIE_CTOR);
@@ -684,6 +684,35 @@ static const uint8_t *md_buffer(Cpu *c, uint64_t md, const char *key, int *n) {
     return (const uint8_t *)(uintptr_t)p;
 }
 
+// The library's MP4 extractor (stagefright's) keeps an H.264 track's AVCDecoderConfigurationRecord under "avcc" and
+// leaves csd-0/csd-1 to MediaCodec, which the host replaces (Cadence of Hyrule's movies keep SPS and PPS only there).
+// The first SPS and PPS of the record become csd-0 and csd-1, bare NAL units (mc_open adds the start codes).
+// Layout: version, profile, compat, level, 0xfc|length size-1, 0xe0|SPS count, {u16 size, SPS}..., PPS count,
+// {u16 size, PPS}...
+static void avcc_parameter_sets(Cpu *c, uint64_t md, const uint8_t **sps, int *nsps, const uint8_t **pps, int *npps) {
+    int n = 0;
+    const uint8_t *r = md_buffer(c, md, "avcc", &n);
+    if (!r || n < 7 || r[0] != 1) return;
+    int count = r[5] & 31, at = 6;
+    for (int i = 0; i < count; i++) {
+        if (at + 2 > n) return;
+        int len = r[at] << 8 | r[at + 1];
+        if (at + 2 + len > n) return;
+        if (!i) *sps = r + at + 2, *nsps = len;
+        at += 2 + len;
+    }
+    if (at >= n) return;
+    count = r[at++];
+    for (int i = 0; i < count; i++) {
+        if (at + 2 > n) return;
+        int len = r[at] << 8 | r[at + 1];
+        if (at + 2 + len > n) return;
+        if (!i) *pps = r + at + 2, *npps = len;
+        at += 2 + len;
+    }
+    rt_log("movie: H.264 parameter sets from the avcc record: SPS %d bytes, PPS %d bytes", *nsps, *npps);
+}
+
 // Configure for the host codecs: H.264 (video/avc, NV12 out) and AAC (audio/mp4a-latm, 16-bit PCM out).
 static void configure_mc(Cpu *c, Movie *m, uint64_t md) {
     uint64_t mime_p = 0;
@@ -694,6 +723,7 @@ static void configure_mc(Cpu *c, Movie *m, uint64_t md) {
     md_find_int32(c, md, video ? "width" : "sample-rate", &a);
     md_find_int32(c, md, video ? "height" : "channel-count", &b);
     const uint8_t *csd0 = md_buffer(c, md, "csd-0", &n0), *csd1 = md_buffer(c, md, "csd-1", &n1);
+    if (video && !n0) avcc_parameter_sets(c, md, &csd0, &n0, &csd1, &n1);
     rt_log("movie: configure %s %s %dx%d output format %d, csd-0 %d bytes (%02x %02x %02x %02x %02x), csd-1 %d bytes",
            video ? "video" : "audio", mime ? mime : "(none)", a, b, m->format, n0, n0 > 0 ? csd0[0] : 0,
            n0 > 1 ? csd0[1] : 0, n0 > 2 ? csd0[2] : 0, n0 > 3 ? csd0[3] : 0, n0 > 4 ? csd0[4] : 0, n1);

@@ -324,9 +324,21 @@ def module_glue(layout, linked, hashes, paths, version, game='totk'):
     for name in ('exefs', 'romfs', 'profile'):
         out.append(f'const char rt_default_{name}[] = {c_string(paths[name].as_posix())};')
     number = int(DISPLAY_VERSIONS[version].replace('.', '')) if version in DISPLAY_VERSIONS else 0   # 1.4.3 -> 143
+    profile = GAMES[game]
     out += [f'const int rt_game_version = {number};', f'const char rt_port_version[] = {c_string(port_version())};',
-            f'const int rt_game_mua3 = {1 if game == "mua3" else 0};', '']
+            f'const int rt_game_id = {profile["id"]};',
+            f'const unsigned long long rt_game_program_id = {profile["program_id"]:#x}ull;',
+            f'const char rt_game_display_version[] = {c_string(profile["display_version"])};', '']
     return '\n'.join(out)
+
+
+# The games a build can be for (--game): the runtime's game id (host.h RT_GAME_*), the application id the game reads
+# back (svc GetInfo, save data) and the version oe::GetDisplayVersion reports.
+GAMES = {
+    'totk': {'id': 0, 'program_id': 0x0100F2C0115B6000, 'display_version': '1.0.0'},
+    'mua3': {'id': 1, 'program_id': 0x010060700AC50000, 'display_version': '4.0.1'},
+    'cadence': {'id': 2, 'program_id': 0x01000B900D8B0000, 'display_version': '1.4.0'},
+}
 
 
 def port_version():
@@ -734,8 +746,9 @@ def mib(n):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--version', default='v121', help='game version (default v121)')
-    ap.add_argument('--game', choices=('totk', 'mua3'), default='totk',
-                    help='which game the build is for: mua3 turns off the runtime parts tied to TotK addresses')
+    ap.add_argument('--game', choices=tuple(GAMES), default='totk',
+                    help='which game the build is for: any game but totk turns off the runtime parts tied to TotK '
+                         'addresses (GAMES)')
     ap.add_argument('--cpu', choices=('v2', 'v3'), default='v3',
                     help='target CPU level: v3 (AVX2/FMA, default) or v2 (SSE4.2, for older CPUs; slower)')
     ap.add_argument('--gen', type=Path, help='generated C directory (default generated/<version>)')

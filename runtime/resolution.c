@@ -319,7 +319,7 @@ static void res_shadow_range(void) {
 }
 
 void res_init(void) {
-    if (RT_MUA3) {   // the output, scene and shadow sizes below are TotK's patch page and constants
+    if (RT_OTHER_GAME) {   // the output, scene and shadow sizes below are TotK's patch page and constants
         rt_log("resolution: the game's own (MUA3 build: TotK resolution and shadow patches off)");
         return;
     }
