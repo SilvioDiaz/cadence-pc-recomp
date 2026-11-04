@@ -328,16 +328,22 @@ def module_glue(layout, linked, hashes, paths, version, game='totk'):
     out += [f'const int rt_game_version = {number};', f'const char rt_port_version[] = {c_string(port_version())};',
             f'const int rt_game_id = {profile["id"]};',
             f'const unsigned long long rt_game_program_id = {profile["program_id"]:#x}ull;',
-            f'const char rt_game_display_version[] = {c_string(profile["display_version"])};', '']
+            f'const char rt_game_display_version[] = {c_string(profile["display_version"])};',
+            f'const char rt_game_name[] = {c_string(profile["name"])};',
+            f'const char rt_game_file[] = {c_string(profile["file"])};', '']
     return '\n'.join(out)
 
 
 # The games a build can be for (--game): the runtime's game id (host.h RT_GAME_*), the application id the game reads
-# back (svc GetInfo, save data) and the version oe::GetDisplayVersion reports.
+# back (svc GetInfo, save data), the version oe::GetDisplayVersion reports, the name the player sees (window title,
+# settings menu) and the file name of the executable, its settings file (<file>.ini) and its logs (logs/<file>.log).
 GAMES = {
-    'totk': {'id': 0, 'program_id': 0x0100F2C0115B6000, 'display_version': '1.0.0'},
-    'mua3': {'id': 1, 'program_id': 0x010060700AC50000, 'display_version': '4.0.1'},
-    'cadence': {'id': 2, 'program_id': 0x01000B900D8B0000, 'display_version': '1.4.0'},
+    'totk': {'id': 0, 'program_id': 0x0100F2C0115B6000, 'display_version': '1.0.0', 'name': 'TotK Recomp',
+             'file': 'totk'},
+    'mua3': {'id': 1, 'program_id': 0x010060700AC50000, 'display_version': '4.0.1', 'name': 'MUA3 Recomp',
+             'file': 'mua3'},
+    'cadence': {'id': 2, 'program_id': 0x01000B900D8B0000, 'display_version': '1.5.0',
+                'name': 'Cadence of Hyrule Recomp', 'file': 'cadence'},
 }
 
 
@@ -788,6 +794,8 @@ def main():
     ap.add_argument('--expected', type=Path,
                     help='expected hashes (default tools/data/expected-<display version>.json)')
     args = ap.parse_args()
+    global EXE   # the executable is named after the game (GAMES file)
+    EXE = GAMES[args.game]['file'] + ('.exe' if WIN else '')
     set_cpu(args.cpu)
 
     gen = (args.gen or ROOT / 'generated' / args.version).resolve()

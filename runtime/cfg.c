@@ -674,8 +674,8 @@ static int find_ini(void) {
     if (!plat_exe_path(path, sizeof path)) return 0;
     char *cut = plat_last_sep(path);
     if (!cut) cut = strrchr(path, '/');
-    if (!cut || cut + 10 >= path + sizeof path) return 0;
-    strcpy(cut + 1, "totk.ini");
+    if (!cut || (size_t)(cut - path) + strlen(rt_game_file) + 6 >= sizeof path) return 0;
+    snprintf(cut + 1, sizeof path - (size_t)(cut + 1 - path), "%s.ini", rt_game_file);   // the game's <file>.ini
     snprintf(ini_path, sizeof ini_path, "%s", path);
     return 1;
 }

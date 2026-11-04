@@ -196,6 +196,8 @@ enum { RT_GAME_TOTK = 0, RT_GAME_MUA3 = 1, RT_GAME_CADENCE = 2 };
 extern const int rt_game_id;
 extern const unsigned long long rt_game_program_id;        // the game's application id
 extern const char rt_game_display_version[];               // what oe::GetDisplayVersion reports
+extern const char rt_game_name[];                          // the name the player sees: window title, settings menu
+extern const char rt_game_file[];                          // <file>.exe, <file>.ini, logs/<file>.log
 #define RT_TOTK (rt_game_id == RT_GAME_TOTK)
 #define RT_MUA3 (rt_game_id == RT_GAME_MUA3)
 #define RT_CADENCE (rt_game_id == RT_GAME_CADENCE)
