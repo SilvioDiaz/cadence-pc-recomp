@@ -1164,6 +1164,17 @@ static void feedback_barrier(VkExec *ex) {
     vk_exec_frame.fb_barriers++;
 }
 
+// 1 when shader s writes memory: a storage image, or a storage buffer it stores into (vk_exec.c keep_pass).
+static int shader_stores(const GfxShader *s) {
+    if (!s) return 0;
+    const GfxShaderRes *r;
+    if (gfx_shader_resources(s, GFX_RES_IMG, &r)) return 1;
+    int n = gfx_shader_resources(s, GFX_RES_SSBO, &r);
+    for (int i = 0; i < n; i++)
+        if (r[i].flags & 1) return 1;
+    return 0;
+}
+
 // Marks the attachments the draw with state s writes: colour targets with a nonzero effective write mask, depth with
 // depth writes or the stencil test on.
 static void feedback_written(VkExec *ex, const VkPipeState *s) {
@@ -2237,6 +2248,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     bind_resources(ex, info);
     if (fbl & ex->fb_dirty) feedback_barrier(ex);
     feedback_written(ex, &s);
+    if (!ex->pass_stores && (shader_stores(vs) || shader_stores(fs))) ex->pass_stores = 1;
     bind_vertex_buffers(ex);
     if (vk_dump_armed) vk_dump_draw(ex, &s, p, info);
     if (vk_hdr_track) vk_hdr_draw(ex, info);
@@ -3199,6 +3211,7 @@ static void op_dispatch_ind(VkExec *ex, const p_dispatch_ind *d) {
 
 static void op_update_ub(VkExec *ex, const p_update_ub *u) {
     if (!u->size) return;
+    vk_exec_frame.ub_updates++;
     VkMemSpan sp;
     if (!vk_mem_resolve(u->dst, u->size, &sp)) return warn_once(W_UB, "UpdateUniformBuffer to %#llx is not backed: dropped", (unsigned long long)u->dst);
     cb_res(ex);

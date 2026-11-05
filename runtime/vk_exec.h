@@ -116,6 +116,7 @@ typedef struct VkExec {
     const void *fb_fs;                   // feedback_scan's memo: fragment shader, texture bind serial, pass serial
     uint32_t fb_serial, fb_pass, fb_sampled;
     uint32_t tex_serial, pass_serial;    // bumped by every texture or image bind and pass begin
+    int pass_stores;                     // a draw of the open pass writes a storage buffer or image (keep_pass)
 } VkExec;
 
 // Begins dynamic rendering with the current targets unless a pass is open (a full memory barrier precedes it). Call
@@ -158,6 +159,8 @@ typedef struct {
     uint64_t fb_draws, fb_barriers, fb_restarts, fb_layouts;   // feedback loops: draws sampling a written target of
                                                                // their pass, in-pass barriers, pass restarts, layout
                                                                // transitions
+    uint64_t ub_updates, game_barriers;                        // UpdateUniformBuffer and Barrier ops
+    uint64_t barriers_in_pass;                                 // Barrier ops that left the pass open (keep_pass)
 } VkExecFrame;
 extern VkExecFrame vk_exec_frame;
 void vk_exec_frame_written(const tex_t *t);                    // vk_texture_gpu_written: t rendered or copied into
