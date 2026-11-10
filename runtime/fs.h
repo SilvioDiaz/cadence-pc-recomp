@@ -51,6 +51,9 @@ const char *romfs_overlay(size_t k, const char **file, uint64_t *size, int *is_a
 void fs_trace(const char *what, const char *path);         // TOTK_TRACE=fs: one line per open
 
 // ---- fs_host.c
+int aoc_count(void);                                       // installed add-on content (DLC folders under dlc/)
+int aoc_list(int32_t *out, int offset, int count);         // their indices in ascending order, from offset; returns n
+int aoc_installed(int index);                              // index is installed
 void fs_host_set_profile(const char *dir);                 // profile directory; before the first storage mount only
                                                            // (default rt_config()->profile)
 int fs_save_busy(void);                                    // a save is being written: a save file open for writing,

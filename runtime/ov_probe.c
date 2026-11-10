@@ -429,7 +429,8 @@ static void probe_applet(void) {
     CALL("err.ShowError", 0x2a8);
     CALL("nndiagStartup", 0);
     CALL("aoc.Initialize", 0);
-    CHECK(CALL("aoc.ListAddOnContent", U(out), 0, 8) == 0, "aoc: no add-on content");
+    CHECK(CALL("aoc.ListAddOnContent", U(out), 0, 8) == (uint64_t)(aoc_count() < 8 ? aoc_count() : 8),
+          "aoc: the installed add-on content");
     CALL("err.InitializeContextWriterApi", 0);
     CALL("pctl.Initialize", 0);
     CALL("diag.InitializeApplicationAbortObserver", 0);

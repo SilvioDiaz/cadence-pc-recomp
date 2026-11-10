@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfg.h"
 #include "fs.h"
 #include "host.h"
 #include "platform/platform.h"
@@ -33,7 +34,8 @@
 #define NMOUNTS 16
 #define PATH_CAP 1100
 
-enum { M_FREE, M_SAVE, M_TEMP, M_CACHE, M_SAVE_RO };   // M_SAVE: the working copy; M_SAVE_RO: the committed save
+enum { M_FREE, M_SAVE, M_TEMP, M_CACHE, M_SAVE_RO, M_AOC };   // M_SAVE: the working copy; M_SAVE_RO: the committed
+                                                               // save; M_AOC: an add-on content folder (read-only)
 
 typedef struct { int kind; char name[32]; char root[1024]; } Mount;
 typedef struct { PlatFile *h; int mode, save; } File;   // h NULL = free; save: on a save-data mount
@@ -705,7 +707,7 @@ static uint32_t host_path(const char *path, char *out, size_t cap) { return host
 static uint32_t save_change_path(const char *path, char *out, size_t cap) {
     int kind = M_FREE;
     uint32_t r = host_path_kind(path, out, cap, &kind);
-    if (!r && kind == M_SAVE_RO) return FS_R_UNSUPPORTED_OPEN;
+    if (!r && (kind == M_SAVE_RO || kind == M_AOC)) return FS_R_UNSUPPORTED_OPEN;
     if (!r && kind == M_SAVE) save_touched();
     return r;
 }
@@ -755,6 +757,84 @@ static uint32_t mount_temp(const char *name) {
     char p[PATH_CAP];
     snprintf(p, sizeof p, "%s/temp", profile);
     return mount_add(name, M_TEMP, p);
+}
+
+// ---- add-on content (DLC): one folder of plain files per installed DLC, <dlc>/<index> (tools/extract_dlc.py). <dlc>
+// is TOTK_DLC (relative to the executable's folder) or the dlc folder next to the executable. The list is read once:
+// on the Switch it changes only when the player installs DLC, and the game is told through an event never signalled.
+#define AOC_MAX 64
+#define AOC_CACHE_SIZE 0x1000u   // what the game allocates for a mount's cache; the host reads files directly
+static char aoc_root[1024];
+static int aoc_index[AOC_MAX], aoc_n;
+
+static int int_cmp(const void *a, const void *b) { return *(const int *)a - *(const int *)b; }
+
+static void aoc_scan(void *param) {
+    (void)param;
+    char exe[1024];
+    int n = plat_exe_path(exe, sizeof exe);
+    char *cut = n && n < (int)sizeof exe ? plat_last_sep(exe) : NULL;
+    if (cut) *cut = 0;
+    const char *e = cfg_get("TOTK_DLC");
+    if (e && *e) {
+        int abs_path = e[0] == '\\' || e[0] == '/' || (e[0] && e[1] == ':');
+        if (abs_path || !cut) snprintf(aoc_root, sizeof aoc_root, "%s", e);
+        else snprintf(aoc_root, sizeof aoc_root, "%s/%s", exe, e);
+    } else if (cut) {
+        snprintf(aoc_root, sizeof aoc_root, "%s/dlc", exe);
+    }
+    Listing l;
+    if (!*aoc_root || plat_fs_kind(aoc_root) != PLAT_FS_DIR || list_dir(aoc_root, &l) != PLAT_FS_OK) {
+        rt_log("aoc: no add-on content (no folder %s)", *aoc_root ? aoc_root : "dlc");
+        return;
+    }
+    for (int i = 0; i < l.n; i++) {
+        const char *name = l.e[i].name;
+        char *end;
+        long v = strtol(name, &end, 10);
+        if (l.e[i].kind != PLAT_FS_DIR || *end || name[0] == '0' || v < 1 || v > 2047) continue;
+        if (aoc_n == AOC_MAX) rt_fatal("aoc: more than %d add-on content folders in %s", AOC_MAX, aoc_root);
+        aoc_index[aoc_n++] = (int)v;
+    }
+    listing_free(l.e, l.n);
+    qsort(aoc_index, (size_t)aoc_n, sizeof *aoc_index, int_cmp);
+    char line[AOC_MAX * 6 + 1] = "";
+    for (int i = 0; i < aoc_n; i++) snprintf(line + strlen(line), sizeof line - strlen(line), " %d", aoc_index[i]);
+    rt_log("aoc: %d add-on content in %s:%s", aoc_n, aoc_root, aoc_n ? line : " none");
+}
+
+static void aoc_ready(void) {
+    static PlatOnce once = PLAT_ONCE_INIT;
+    plat_once(&once, aoc_scan, NULL);
+}
+
+int aoc_count(void) {
+    aoc_ready();
+    return aoc_n;
+}
+
+int aoc_list(int32_t *out, int offset, int count) {
+    aoc_ready();
+    int n = 0;
+    for (int i = offset; i < aoc_n && n < count; i++) out[n++] = aoc_index[i];
+    return n;
+}
+
+int aoc_installed(int index) {
+    aoc_ready();
+    for (int i = 0; i < aoc_n; i++)
+        if (aoc_index[i] == index) return 1;
+    return 0;
+}
+
+static uint32_t mount_aoc(const char *name, int index) {
+    if (!aoc_installed(index)) {
+        rt_log("fs: MountAddOnContent(\"%s\", %d): not installed", name ? name : "(null)", index);
+        return FS_R_TARGET_NOT_FOUND;
+    }
+    char p[PATH_CAP];
+    snprintf(p, sizeof p, "%s/%d", aoc_root, index);
+    return mount_add(name, M_AOC, p);
 }
 
 static void cache_dir(int index, char *out, size_t cap) { snprintf(out, cap, "%s/cache/%d", profile, index); }
@@ -886,7 +966,7 @@ static uint32_t open_file(uint64_t *out, const char *path, int mode) {
     uint32_t r = host_path_kind(path, p, sizeof p, &kind);
     if (r) return r;
     if (plat_fs_kind(p) != PLAT_FS_FILE) return FS_R_PATH_NOT_FOUND;
-    if (kind == M_SAVE_RO && (mode & FS_OPEN_WRITE)) return FS_R_UNSUPPORTED_OPEN;
+    if ((kind == M_SAVE_RO || kind == M_AOC) && (mode & FS_OPEN_WRITE)) return FS_R_UNSUPPORTED_OPEN;
     int save_writer = kind == M_SAVE && (mode & FS_OPEN_WRITE);
     int err = 0;
     PlatFile *f = plat_fs_open(p, (mode & FS_OPEN_WRITE) != 0, &err);
@@ -1160,14 +1240,18 @@ static void ov_commit(Cpu *c) { ret_x(c, commit(arg_p(c, 0))); }
 // guest memory. The older SDK's own SetAllocator (MUA3) asks fsp-srv whether the access log is on first.
 static void ov_set_allocator(Cpu *c) { (void)c; }
 static void ov_directory_entry_count(Cpu *c) { ret_x(c, directory_entry_count(arg_p(c, 0), arg_x(c, 1))); }
-// Add-on content (DLC) is not mounted yet: there is none to mount, and its cache needs no room.
-static void ov_mount_aoc(Cpu *c) {
-    rt_log("fs: MountAddOnContent(\"%s\", %d): no add-on content", (const char *)arg_p(c, 0), I32(1));
-    ret_x(c, FS_R_TARGET_NOT_FOUND);
-}
+// Result MountAddOnContent(const char *name, AddOnContentIndex index, void *cache, size_t cache_size): the cache is
+// guest memory the host does not need.
+static void ov_mount_aoc(Cpu *c) { ret_x(c, mount_aoc(arg_p(c, 0), I32(1))); }
+// Result QueryMountAddOnContentCacheSize(size_t *out, AddOnContentIndex index)
 static void ov_query_aoc_cache(Cpu *c) {
     uint64_t *out = arg_p(c, 0);
-    if (out) *out = 0;
+    if (!out) rt_fatal("nn::fs::QueryMountAddOnContentCacheSize: null output");
+    if (!aoc_installed(I32(1))) {
+        ret_x(c, FS_R_TARGET_NOT_FOUND);
+        return;
+    }
+    *out = AOC_CACHE_SIZE;
     ret_x(c, 0);
 }
 static void ov_create_cache(Cpu *c) { ret_x(c, create_cache(I32(0), I64(1), I64(2))); }

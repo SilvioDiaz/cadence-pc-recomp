@@ -53,6 +53,9 @@ def main(argv=None):
     ap.add_argument('--base', type=Path, help='base game, XCI or NSP (or NSZ, XCZ: unpacked first)')
     ap.add_argument('--update', type=Path, help='the update NSP or NSZ: 1.1.0, 1.2.1 or 1.4.3')
     ap.add_argument('--keys', type=Path, help='prod.keys')
+    ap.add_argument('--dlc', type=Path, action='append', default=[],
+                    help='add-on content (DLC) NSP or NSZ; repeat for each (default: the DLC files in the folder of '
+                         'the base game and its subfolders)')
     ap.add_argument('--firmware', type=Path, help='Switch firmware folder (Contents/registered) for the shared fonts '
                                                    'of Chinese, Korean and Traditional Chinese text')
     ap.add_argument('--lang', help='game language, a Switch language code (en-US, en-GB, ja, de, ru, ...)')

@@ -396,13 +396,15 @@ static void ov_show_error(Cpu *c) {
 
 // ==== SDK-internal initialisation (services.c)
 static void ov_diag_startup(Cpu *c) { (void)c; rt_log("diag: host diagnostics"); }
-static void ov_aoc_initialize(Cpu *c) { (void)c; rt_log("aoc: no add-on content"); }
-// 1.4.3's main lists add-on content (MNG services.c host_aoc_list): there is none.
-// int ListAddOnContent(AddOnContentIndex *out, int offset, int count)
+static void ov_aoc_initialize(Cpu *c) { (void)c; rt_log("aoc: %d add-on content installed", aoc_count()); }
+// int ListAddOnContent(AddOnContentIndex *out, int offset, int count): the DLC folders fs_host.c found
 static void ov_aoc_list(Cpu *c) {
+    int32_t *out = arg_p(c, 0);
     int offset = (int)arg_x(c, 1), count = (int)arg_x(c, 2);
-    if (offset < 0 || count < 0) rt_fatal("aoc: ListAddOnContent range %d+%d", offset, count);
-    ret_x(c, 0);
+    if (offset < 0 || count < 0 || (!out && count)) rt_fatal("aoc: ListAddOnContent range %d+%d", offset, count);
+    int n = aoc_list(out, offset, count);
+    rt_log("aoc: ListAddOnContent(%d, %d) -> %d", offset, count, n);
+    ret_x(c, (uint64_t)n);
 }
 static void ov_err_context(Cpu *c) { (void)c; rt_log("err: error contexts stay local"); }
 static void ov_pctl_initialize(Cpu *c) { (void)c; rt_log("pctl: no parental controls"); }
@@ -947,7 +949,6 @@ HOST_OVERRIDE("_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE", ov_font_size
 
 // ==== older SDK forms and the offline account (MUA3)
 #define ACCOUNT_R_NSA_UNAVAILABLE 0x1f07cu   // account module 124: no network service account (offline)
-#define AOC_R_NONE 0u
 
 // void OpenPreselectedUser(UserHandle *out): the older SDK form of TryOpenPreselectedUser; it aborts on failure.
 static void ov_open_user_strict(Cpu *c) {
@@ -980,9 +981,9 @@ static void ov_async_event(Cpu *c) {
 }
 static void ov_async_cancel(Cpu *c) { ret_x(c, 0); }
 
-// int CountAddOnContent(): no add-on content is mounted yet. GetAddOnContentListChangedEvent: an event that never
-// fires (the list never changes).
-static void ov_aoc_count(Cpu *c) { ret_x(c, AOC_R_NONE); }
+// int CountAddOnContent(): the DLC folders fs_host.c found. GetAddOnContentListChangedEvent: an event that never
+// fires (the list never changes while the game runs).
+static void ov_aoc_count(Cpu *c) { ret_x(c, (uint64_t)aoc_count()); }
 static void ov_aoc_changed_event(Cpu *c) {
     uint64_t ev = arg_x(c, 0);
     if (!ev) rt_fatal("nn::aoc::GetAddOnContentListChangedEvent: null event");

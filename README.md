@@ -21,11 +21,12 @@ A static recompilation of *Cadence of Hyrule – Crypt of the NecroDancer Featur
 - Starts, shows the opening movies and reaches gameplay at 60 fps
 - Shadows and the picture are the right way up
 - Keyboard, mouse and gamepad (inherited from TotK Recomp)
+- DLC (Character Pack, Melody Pack, Symphony of the Mask, Season Pass) from your own files
 - In-game settings menu (F1) and performance overlay (F10); options that only made sense for TotK are hidden
 
 ## What does not work or is untested
 
-- Only version **1.5.0** (base game 1.0.0 + the 1.5.0 update). DLC is not supported.
+- Only version **1.5.0** (base game 1.0.0 + the 1.5.0 update).
 - Only **Windows** has been tested.
 - TotK's mods, cheats, DLSS and shader preparation do not apply to this game.
 - There may be stutter the first time each effect appears, because shaders are translated during play.
@@ -40,6 +41,7 @@ You need:
 - the base game (version 1.0.0) as NSP, XCI, NSZ or XCZ
 - the 1.5.0 update as NSP or NSZ
 - your console's `prod.keys`
+- optional: your DLC as NSP or NSZ, in the base game's folder or a subfolder of it; the setup finds and installs them
 
 Steps:
 

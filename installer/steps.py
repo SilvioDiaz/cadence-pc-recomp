@@ -811,6 +811,110 @@ class Extract(Step):
             watch.stop()
 
 
+# ---- 3b. add-on content (DLC)
+
+def aoc_index(title_id):
+    """The add-on content index of title_id (a hex string) for this game, else None: base | 0x1000 + 1..0x7ff."""
+    try:
+        tid = int(title_id, 16)
+    except (TypeError, ValueError):
+        return None
+    base = (int(GAME['base_title'], 16) & ~0xfff) + 0x1000
+    return tid - base if base < tid <= base + 0x7ff else None
+
+
+TITLE_ID = re.compile(r'[0-9A-Fa-f]{16}')
+
+
+def dlc_files(ctx):
+    """The DLC files of this install: --dlc, else the files in the base game's folder and its subfolders whose name
+    carries one of this game's add-on content title ids. None when the game has no DLC support or no base is given
+    (an update run without game files keeps the installed DLC)."""
+    if not GAME.get('dlc'):
+        return None
+    given = [Path(p) for p in getattr(ctx.options, 'dlc', None) or []]
+    if given:
+        return given
+    base = getattr(ctx.options, 'base', None)
+    if not base:
+        return None
+    folder = Path(base).resolve().parent
+    found = []
+    for path in sorted([*folder.iterdir(), *(q for d in folder.iterdir() if d.is_dir() for q in d.iterdir())]):
+        if path.is_file() and path.suffix.lower() in ('.nsp', '.nsz') and \
+                any(aoc_index(t) for t in TITLE_ID.findall(path.name)):
+            found.append(path)
+    return found
+
+
+class Dlc(Step):
+    """The game's add-on content: tools/extract_dlc.py writes each DLC's files to dlc/<index> in the install folder,
+    where the runtime lists and mounts them (fs_host.c). A DLC compressed as NSZ is unpacked first (tools/ncz.py).
+    Without DLC files the folder stays as it is: a later run without the game files keeps the installed DLC."""
+
+    id = 'dlc'
+
+    def key(self, ctx):
+        files = dlc_files(ctx)
+        if files is None:
+            return fingerprint('dlc-1', 'kept')
+        return fingerprint('dlc-1', *sorted(files))
+
+    def current(self, ctx, record):
+        return not record.get('count') or (ctx.dest / 'dlc' / 'dlc.json').is_file()
+
+    def run(self, ctx):
+        files = dlc_files(ctx)
+        if not files:
+            if files is not None:
+                ctx.reporter.log('dlc: no add-on content files given or found beside the base game')
+            return {'count': len(list((ctx.dest / 'dlc').glob('[1-9]*'))) if (ctx.dest / 'dlc').is_dir() else 0}
+        keys = getattr(ctx.options, 'keys', None)
+        if not keys:
+            raise InstallError('dlc.keys_needed')
+        rep, folder = ctx.reporter, ctx.temp / 'unpacked'
+        nsps = []
+        for i, path in enumerate(files):
+            if not path.is_file():
+                raise InstallError('dlc.missing', path=str(path))
+            try:
+                packed = ncz.compressed(path)
+                if packed is None:
+                    nsps.append(path)
+                    continue
+                target = folder / f'dlc-{i}.nsp'
+                folder.mkdir(parents=True, exist_ok=True)
+                rep.progress('dlc', 'unpack', force=True)
+                ncz.unpack(path, target)
+                nsps.append(target)
+            except (ValueError, OSError) as e:
+                raise InstallError('dlc.failed', code=1, detail=f'{path.name}: {e}', log='') from None
+        out = ctx.temp / 'dlc'
+        remove(out)
+        rep.progress('dlc', 'extract', force=True)
+        tool = ctx.layout.tools / 'extract_dlc.py'
+        code, log = run_tool(ctx, 'dlc', tool, ['--base-title', GAME['base_title'], '--keys', keys, '--out', out,
+                                                *nsps])
+        for target in folder.glob('dlc-*.nsp'):
+            remove(target)
+        if code:
+            detail = ''
+            try:
+                detail = log.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-1][:300]
+            except (OSError, IndexError):
+                pass
+            raise InstallError('dlc.failed', code=code, detail=detail, log=str(log))
+        installed = json.loads((out / 'dlc.json').read_text(encoding='utf-8'))
+        try:
+            ctx.dest.mkdir(parents=True, exist_ok=True)
+            remove(ctx.dest / 'dlc')
+            shutil.move(str(out), str(ctx.dest / 'dlc'))
+        except OSError as e:
+            raise InstallError('dlc.copy_failed', path=str(ctx.dest / 'dlc'), detail=str(e)) from None
+        rep.log('dlc: installed ' + ', '.join(f'{d["index"]} ({d["source"]})' for d in installed))
+        return {'count': len(installed)}
+
+
 # ---- 4. lift
 
 EMITTED = re.compile(r'^emitted (\d+)/(\d+) chunks')
@@ -1272,6 +1376,7 @@ def romfs_problem(romfs, expected):
 
 
 def all_steps():
-    """The steps of this game: fonts, prepare and dlss only where its profile uses them (tools/game_profile.py)."""
-    return [Check(), *([Fonts()] if GAME['fonts'] else []), Extract(), Lift(), Compile(),
+    """The steps of this game: fonts, dlc, prepare and dlss only where its profile uses them (tools/game_profile.py)."""
+    return [Check(), *([Fonts()] if GAME['fonts'] else []), Extract(), *([Dlc()] if GAME.get('dlc') else []),
+            Lift(), Compile(),
             *([Prepare()] if GAME['prepare'] else []), *([Dlss()] if GAME['dlss'] else []), Cleanup()]

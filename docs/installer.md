@@ -104,10 +104,14 @@ needs the release folder the setup ran from: a moved or deleted release folder m
 `installer/` (stdlib only; `installer/layout.py` maps the release folder and, in a repository, the dev toolchain):
 
 ```
-python -m installer --base FILE --update FILE --keys FILE --lang CODE --dest DIR [--firmware DIR] [--root DIR] [--temp DIR] [--verify]
+python -m installer --base FILE --update FILE --keys FILE --lang CODE --dest DIR [--dlc FILE ...] [--firmware DIR] [--root DIR] [--temp DIR] [--verify]
 ```
 
 - On a folder with `totk-install.json` only `--dest` is needed; the game files only when the extraction must run again.
+- `--dlc FILE` (repeatable) is an add-on content NSP or NSZ. Without it, the setup takes the files in the base game's
+  folder and its subfolders whose name carries one of the game's DLC title ids (`[01000B900D8B1001]` ...). The DLC step
+  (`tools/extract_dlc.py`) writes each one to `dlc/<index>/` in the install folder, where the game finds it; a run
+  without the game files keeps the installed DLC.
 - `--firmware DIR` is the folder holding the firmware NCAs: an unpacked firmware, or the emulators' installed
   `Contents/registered` (the parent `Contents` folder works too). It is read only with Chinese, Korean or Traditional
   Chinese text, and only when `shared-fonts/` is not already in the install folder.

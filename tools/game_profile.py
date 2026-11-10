@@ -23,6 +23,7 @@ PROFILES = {
         'fonts': True,                        # the Switch shared fonts for Chinese and Korean text
         'prepare': True,                      # RomFS patches and the shader list (MacNativeGames)
         'dlss': True,                         # NVIDIA DLSS for the 3D scene (vk_dlaa.c)
+        'dlc': False,                         # add-on content installed into dlc/ (fs_host.c mounts it)
     },
     'cadence': {
         'game': 'cadence',
@@ -39,6 +40,7 @@ PROFILES = {
         'fonts': False,
         'prepare': False,
         'dlss': False,
+        'dlc': True,
     },
 }
 
