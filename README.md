@@ -2,6 +2,8 @@
 
 A static recompilation of *Cadence of Hyrule – Crypt of the NecroDancer Featuring The Legend of Zelda* (Nintendo Switch) into a native x86-64 Windows executable.
 
+<a href="https://recomplauncher.com/game/cadence-pc-recomp"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 > [!WARNING]
 > **This project was made by AI.** Nearly all of the code, the porting work and this documentation were written by an AI coding agent (Claude Code, by Anthropic) at the repository owner's request; the owner tested the builds on their own PC.
 >

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Cadence of Hyrule Recomp",
+  "repo": "SilvioDiaz/cadence-pc-recomp",
+  "game": {
+    "kind": "folder",
+    "label": "A folder with your own dump of Cadence of Hyrule for Nintendo Switch: the base game 1.0.0 (NSP, XCI, NSZ or XCZ), the 1.5.0 update (NSP or NSZ) and your console's prod.keys."
+  },
+  "prepare": {
+    "program": ["python/python.exe"],
+    "args": ["-m", "installer.recomplauncher", "--prepare", "--game", "{game}", "--dest", "{install}/game"],
+    "label": "Building the game from your files. This takes a few minutes and needs about 12 GB free.",
+    "timeout": 3600
+  },
+  "start": {
+    "program": ["game/cadence.exe"]
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [{ "path": "{install}/game/cadence.ini" }]
+    }
+  ],
+  "saves": ["{install}/game/profile/save"],
+  "folders": {
+    "saves": [{ "path": "{install}/game/profile" }],
+    "logs": [{ "path": "{install}/game/logs" }]
+  },
+  "settings": [
+    {
+      "id": "window", "label": "Window",
+      "help": "Fullscreen fills your screen. Windowed uses Window size.",
+      "choices": [
+        { "label": "Windowed", "set": { "fullscreen": "0" } },
+        { "label": "Fullscreen", "set": { "fullscreen": "1" } }
+      ],
+      "defaults": { "fullscreen": "0" }
+    },
+    {
+      "id": "window_size", "label": "Window size",
+      "help": "The size of the game's window in Windowed mode.",
+      "choices": [
+        { "label": "1280 x 720", "set": { "window_size": "1280x720" } },
+        { "label": "1600 x 900", "set": { "window_size": "1600x900" } },
+        { "label": "1920 x 1080", "set": { "window_size": "1920x1080" } },
+        { "label": "2560 x 1440", "set": { "window_size": "2560x1440" } },
+        { "label": "3840 x 2160", "set": { "window_size": "3840x2160" } }
+      ],
+      "defaults": { "window_size": "1920x1080", "fullscreen": "0" },
+      "when": { "fullscreen": "0" }
+    },
+    {
+      "id": "present", "label": "Frame pacing",
+      "help": "Low latency shows the newest frame without tearing. V-Sync waits for the screen. Immediate never waits and can tear.",
+      "choices": [
+        { "label": "Low latency", "set": { "vk_present": "mailbox" } },
+        { "label": "V-Sync", "set": { "vk_present": "fifo" } },
+        { "label": "Immediate", "set": { "vk_present": "immediate" } }
+      ],
+      "defaults": { "vk_present": "mailbox" }
+    },
+    {
+      "id": "upscaling", "label": "Upscaling",
+      "help": "How the game's picture is fitted to your screen. FSR is sharper; Bilinear is softer.",
+      "choices": [
+        { "label": "FSR", "set": { "upscaler": "fsr" } },
+        { "label": "Bilinear", "set": { "upscaler": "bilinear" } }
+      ],
+      "defaults": { "upscaler": "fsr" }
+    },
+    {
+      "id": "aspect", "label": "Picture shape",
+      "help": "Fit keeps the game's 16:9 picture and adds bars where the screen is another shape. Stretch fills the screen.",
+      "choices": [
+        { "label": "Fit", "set": { "aspect": "fit" } },
+        { "label": "Stretch", "set": { "aspect": "stretch" } }
+      ],
+      "defaults": { "aspect": "fit" }
+    },
+    {
+      "id": "filtering", "label": "Texture filtering",
+      "help": "Keeps textures sharp at shallow angles. Applies the next time the game starts.",
+      "choices": [
+        { "label": "Game's own", "set": { "aniso": "game" } },
+        { "label": "2x", "set": { "aniso": "2" } },
+        { "label": "4x", "set": { "aniso": "4" } },
+        { "label": "8x", "set": { "aniso": "8" } },
+        { "label": "16x", "set": { "aniso": "16" } }
+      ],
+      "defaults": { "aniso": "game" }
+    },
+    {
+      "id": "buttons", "label": "Button layout",
+      "help": "Which button is the Switch's A. Nintendo plays by position, Xbox by the letter on the button. Automatic follows the controller that is plugged in.",
+      "choices": [
+        { "label": "Automatic", "set": { "pad_layout": "auto" } },
+        { "label": "Nintendo", "set": { "pad_layout": "nintendo" } },
+        { "label": "Xbox", "set": { "pad_layout": "xbox" } }
+      ],
+      "defaults": { "pad_layout": "auto" }
+    },
+    {
+      "id": "overlay", "label": "Performance overlay",
+      "help": "The frame rate, or the full timing graph, in a corner of the game. F10 switches it in the game.",
+      "choices": [
+        { "label": "Off", "set": { "perf_overlay": "off" } },
+        { "label": "FPS", "set": { "perf_overlay": "fps" } },
+        { "label": "Full", "set": { "perf_overlay": "full" } }
+      ],
+      "defaults": { "perf_overlay": "off" }
+    }
+  ],
+  "actions": [
+    { "id": "saves", "label": "Saves", "help": "Your save, its three earlier copies and the game's cache.", "open": "saves" },
+    { "id": "logs", "label": "Logs", "help": "The logs of the last five starts, to attach to a bug report.", "open": "logs" }
+  ]
+}

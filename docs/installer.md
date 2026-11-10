@@ -129,6 +129,12 @@ python -m installer --base FILE --update FILE --keys FILE --lang CODE --dest DIR
   from a firmware folder. A folder with
   `totk-install.json` needs only the folder. `--selftest [--shots DIR]` builds every screen in every language and
   closes itself.
+- RecompLauncher (`recomplauncher.json` at the top of the release, `installer/recomplauncher.py`): the launcher runs
+  `python -m installer.recomplauncher --prepare --game PATH --dest DIR [--keys FILE] [--lang CODE]` without a window.
+  `--game` is a folder holding the base game and the update (or one of the two files); `prod.keys` is `--keys`, else
+  the one in that folder, else `~/.switch/prod.keys`. It runs the same steps and prints `progress <0..1> <text>`
+  lines instead of the JSON events. The launcher installs into `game/` inside the release folder and starts
+  `game/cadence.exe`. Nothing else uses this module.
 - `tests/installer_gui_test.py`: event model, form, catalogs, cancel, the self-closing window and one end-to-end run
   of the CLI in `--verify` mode (needs `build/install-test` and `build/extracted/v121`; see its docstring).
 - `tests/installer_test.py`: bookkeeping with fake steps. `tests/installer_e2e.py`: a dev-mode run with the files of

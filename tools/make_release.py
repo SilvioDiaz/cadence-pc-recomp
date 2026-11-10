@@ -421,7 +421,9 @@ def build_sources(out):
         (out / 'data').mkdir(exist_ok=True)
         text = shader_list.history(MAIN_ROOT / 'refs' / 'MacNativeGames', MNG_COMMIT)
         (out / 'data' / 'shader_list.tsv').write_text(text, encoding='utf-8', newline='\n')
-    for name in ('README.md', 'LICENSE'):
+    # recomplauncher.json: how RecompLauncher sets the release up and starts the game (docs/installer.md, "Command
+    # line"); the launcher reads it at the top of the zip, next to the setup
+    for name in ('README.md', 'LICENSE', *(('recomplauncher.json',) if (ROOT / 'recomplauncher.json').is_file() else ())):
         shutil.copy2(ROOT / name, out / name)
     copy_tree(ROOT / 'installer', out / 'installer', lambda r: '__pycache__' in r or r.startswith('launcher/'))
     shutil.copy2(ROOT / 'totk.ini.example', out / 'totk.ini.example')
